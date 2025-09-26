@@ -4,10 +4,8 @@
   "description": "Image scraper and CORS proxy API using Vercel",
   "main": "index.js",
   "scripts": {
-    "dev": "vercel dev",
-    "build": "vercel build",
-    "deploy": "vercel"
-  },
+  "start": "node index.js"
+},
   "dependencies": {
     "cheerio": "^1.0.0-rc.12"
   },
