@@ -1,0 +1,20 @@
+{
+  "name": "vercel-image-scraper",
+  "version": "1.0.0",
+  "description": "Image scraper and CORS proxy API using Vercel",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "vercel build",
+    "deploy": "vercel"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["vercel", "api", "scraper", "cors", "proxy"],
+  "author": "Your Name",
+  "license": "MIT"
+}
