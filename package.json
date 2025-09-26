@@ -11,9 +11,6 @@
   "dependencies": {
     "cheerio": "^1.0.0-rc.12"
   },
-  "engines": {
-    "node": ">=22x"
-  },
   "keywords": ["vercel", "api", "scraper", "cors", "proxy"],
   "author": "Your Name",
   "license": "MIT"
