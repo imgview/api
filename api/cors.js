@@ -1,45 +1,20 @@
-// api/cors.js
-module.exports = (req, res) => {
-  // IZINKAN semua origin (untuk "anti-CORS")
+const fetch = require('node-fetch');
+
+module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
 
-  // Izinkan metode yang diperlukan (tambahkan lain jika perlu)
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS'
-  );
+  if (req.method === 'OPTIONS') return res.status(204).end();
 
-  // Izinkan header yang diperlukan oleh client
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization'
-  );
+  try {
+    const response = await fetch('https://luvyaa.my.id');
+    const html = await response.text();
 
-  // Bila butuh credential (cookies/auth) -> jangan pakai '*' untuk origin
-  // res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  // Tangani preflight OPTIONS (penting)
-  if (req.method === 'OPTIONS') {
-    // No content, cuma header preflight
-    res.statusCode = 204;
-    return res.end();
-  }
-
-  // Contoh response untuk GET/POST
-  // Ambil body (jika JSON)
-  let body = '';
-  req.on('data', chunk => (body += chunk));
-  req.on('end', () => {
-    // Jika ada JSON
-    let parsed = null;
-    try { parsed = body ? JSON.parse(body) : null; } catch (e) { /* ignore */ }
+    const imgTags = [...html.matchAll(/<img[^>]+src="([^">]+)"/g)].map(m => m[1]);
 
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({
-      ok: true,
-      method: req.method,
-      message: 'API di Vercel - CORS diizinkan',
-      received: parsed
-    }));
-  });
+    res.end(JSON.stringify({ ok: true, images: imgTags }));
+  } catch (err) {
+    res.status(500).end(JSON.stringify({ ok: false, error: err.message }));
+  }
 };
