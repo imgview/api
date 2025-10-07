@@ -1,7 +1,7 @@
-const rateLimit = new Map();
-const fs = require('fs').promises;
-const path = require('path');
+import { promises as fs } from 'fs';
+import { join } from 'path';
 
+const rateLimit = new Map();
 const ADMIN_IPS = (process.env.waduh || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
 setInterval(() => {
@@ -28,9 +28,7 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() 
-             || req.headers['x-real-ip'] 
-             || 'unknown';
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.headers['x-real-ip'] || 'unknown';
 
   console.log('🔍 Request IP:', ip);
   console.log('🔍 Whitelisted IPs:', ADMIN_IPS);
@@ -59,13 +57,28 @@ export default async function handler(req, res) {
       res.setHeader('X-RateLimit-Remaining', '0');
       res.setHeader('X-RateLimit-Reset', resetTime.toISOString());
       res.setHeader('Content-Type', 'text/html');
+      res.setHeader('X-Error-Type', 'rate-limit');
 
       try {
-        const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
-        return res.status(429).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=rate-limit&remainingMinutes=${remainingMinutes}&maxRequests=${maxRequests}";</script></body>`));
+        const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
+        console.log('✅ Successfully read index.html for rate-limit');
+        return res.status(429).send(htmlResponse.replace('</head>', `<meta name="error-type" content="rate-limit"></head>`));
       } catch (error) {
-        console.error('Error reading index.html:', error);
-        return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+        console.error('❌ Error reading index.html for rate-limit:', error);
+        return res.status(500).send(`
+          <!DOCTYPE html>
+          <html lang="id">
+          <head>
+            <meta charset="UTF-8">
+            <title>Kesalahan Server</title>
+            <meta name="error-type" content="server">
+          </head>
+          <body>
+            <h1>Kesalahan Server</h1>
+            <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
+          </body>
+          </html>
+        `);
       }
     }
 
@@ -84,12 +97,27 @@ export default async function handler(req, res) {
 
   if (!url) {
     res.setHeader('Content-Type', 'text/html');
+    res.setHeader('X-Error-Type', 'missing-url');
     try {
-      const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
-      return res.status(400).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=missing-url&remainingRequests=${maxRequests - requests.length}&maxRequests=${maxRequests}";</script></body>`));
+      const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
+      console.log('✅ Successfully read index.html for missing-url');
+      return res.status(400).send(htmlResponse.replace('</head>', `<meta name="error-type" content="missing-url"></head>`));
     } catch (error) {
-      console.error('Error reading index.html:', error);
-      return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+      console.error('❌ Error reading index.html for missing-url:', error);
+      return res.status(500).send(`
+        <!DOCTYPE html>
+        <html lang="id">
+        <head>
+          <meta charset="UTF-8">
+          <title>Kesalahan Server</title>
+          <meta name="error-type" content="server">
+        </head>
+        <body>
+          <h1>Kesalahan Server</h1>
+          <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
+        </body>
+        </html>
+      `);
     }
   }
 
@@ -100,12 +128,27 @@ export default async function handler(req, res) {
     }
   } catch (e) {
     res.setHeader('Content-Type', 'text/html');
+    res.setHeader('X-Error-Type', 'invalid-url');
     try {
-      const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
-      return res.status(400).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=invalid-url&invalidUrl=${encodeURIComponent(url || 'URL')}";`));
+      const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
+      console.log('✅ Successfully read index.html for invalid-url');
+      return res.status(400).send(htmlResponse.replace('</head>', `<meta name="error-type" content="invalid-url"></head>`));
     } catch (error) {
-      console.error('Error reading index.html:', error);
-      return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+      console.error('❌ Error reading index.html for invalid-url:', error);
+      return res.status(500).send(`
+        <!DOCTYPE html>
+        <html lang="id">
+        <head>
+          <meta charset="UTF-8">
+          <title>Kesalahan Server</title>
+          <meta name="error-type" content="server">
+        </head>
+        <body>
+          <h1>Kesalahan Server</h1>
+          <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
+        </body>
+        </html>
+      `);
     }
   }
 
@@ -158,14 +201,29 @@ export default async function handler(req, res) {
       return res.status(response.status).send(Buffer.from(buffer));
     }
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('❌ Proxy error:', error);
     res.setHeader('Content-Type', 'text/html');
+    res.setHeader('X-Error-Type', 'fetch-failed');
     try {
-      const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
-      return res.status(502).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=fetch-failed&errorMessage=${encodeURIComponent(error.message)}";</script></body>`));
+      const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
+      console.log('✅ Successfully read index.html for fetch-failed');
+      return res.status(502).send(htmlResponse.replace('</head>', `<meta name="error-type" content="fetch-failed"></head>`));
     } catch (fileError) {
-      console.error('Error reading index.html:', fileError);
-      return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+      console.error('❌ Error reading index.html for fetch-failed:', fileError);
+      return res.status(500).send(`
+        <!DOCTYPE html>
+        <html lang="id">
+        <head>
+          <meta charset="UTF-8">
+          <title>Kesalahan Server</title>
+          <meta name="error-type" content="server">
+        </head>
+        <body>
+          <h1>Kesalahan Server</h1>
+          <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
+        </body>
+        </html>
+      `);
     }
   }
-}
+      }
