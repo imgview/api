@@ -1,6 +1,6 @@
 const rateLimit = new Map();
 
-const ADMIN_IPS = (process.env.waduh || '').split(',').map(ip => ip.trim()).filter(Boolean);
+const ADMIN_IPS = (process.env.ADMIN_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
 setInterval(() => {
   const now = Date.now();
