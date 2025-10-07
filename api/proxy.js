@@ -1,4 +1,6 @@
 const rateLimit = new Map();
+const fs = require('fs').promises;
+const path = require('path');
 
 const ADMIN_IPS = (process.env.waduh || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
@@ -15,87 +17,6 @@ setInterval(() => {
     }
   }
 }, 600000);
-
-// Fungsi untuk membuat HTML respons
-function createErrorHtml(title, message, additionalInfo = '') {
-  return `
-    <!DOCTYPE html>
-    <html lang="id">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>${title}</title>
-      <style>
-        body {
-          font-family: 'Segoe UI', Arial, sans-serif;
-          margin: 0;
-          padding: 0;
-          background: linear-gradient(to bottom, #f0f4f8, #d9e2ec);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 100vh;
-          color: #333;
-        }
-        .container {
-          background-color: #fff;
-          padding: 40px;
-          border-radius: 12px;
-          box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-          text-align: center;
-          max-width: 500px;
-          width: 90%;
-        }
-        h1 {
-          color: #d32f2f;
-          font-size: 2em;
-          margin-bottom: 20px;
-        }
-        p {
-          font-size: 1.2em;
-          line-height: 1.5;
-          margin-bottom: 20px;
-        }
-        .icon {
-          font-size: 3em;
-          color: #d32f2f;
-          margin-bottom: 20px;
-        }
-        .button {
-          display: inline-block;
-          padding: 10px 20px;
-          background-color: #1976d2;
-          color: white;
-          text-decoration: none;
-          border-radius: 5px;
-          font-size: 1em;
-          transition: background-color 0.3s;
-        }
-        .button:hover {
-          background-color: #1565c0;
-        }
-        .footer {
-          margin-top: 30px;
-          font-size: 0.9em;
-          color: #666;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="icon">⚠️</div>
-        <h1>${title}</h1>
-        <p>${message}</p>
-        ${additionalInfo ? `<p>${additionalInfo}</p>` : ''}
-        <a href="/support" class="button">Hubungi Dukungan</a>
-        <div class="footer">
-          &copy; ${new Date().getFullYear()} Nama Perusahaan Anda. Semua hak dilindungi.
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -116,21 +37,18 @@ export default async function handler(req, res) {
   console.log('🔍 Is Admin?', ADMIN_IPS.includes(ip));
 
   const isAdmin = ADMIN_IPS.length > 0 && ADMIN_IPS.includes(ip);
+  const maxRequests = 1;
+  let requests = [];
 
-  if (isAdmin) {
-    res.setHeader('X-RateLimit-Status', 'unlimited');
-    res.setHeader('X-RateLimit-Limit', 'unlimited');
-    res.setHeader('X-User-Type', 'admin');
-  } else {
+  if (!isAdmin) {
     const now = Date.now();
     const oneHour = 3600000;
-    const maxRequests = 1;
 
     if (!rateLimit.has(ip)) {
       rateLimit.set(ip, []);
     }
 
-    const requests = rateLimit.get(ip).filter(time => now - time < oneHour);
+    requests = rateLimit.get(ip).filter(time => now - time < oneHour);
 
     if (requests.length >= maxRequests) {
       const oldestRequest = Math.min(...requests);
@@ -142,13 +60,13 @@ export default async function handler(req, res) {
       res.setHeader('X-RateLimit-Reset', resetTime.toISOString());
       res.setHeader('Content-Type', 'text/html');
 
-      const htmlResponse = createErrorHtml(
-        'Batas Permintaan Tercapai',
-        `Maaf, Anda telah mencapai batas maksimum ${maxRequests} permintaan per jam.`,
-        `Silakan coba lagi dalam ${remainingMinutes} menit.`
-      );
-
-      return res.status(429).send(htmlResponse);
+      try {
+        const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
+        return res.status(429).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=rate-limit&remainingMinutes=${remainingMinutes}&maxRequests=${maxRequests}";</script></body>`));
+      } catch (error) {
+        console.error('Error reading index.html:', error);
+        return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+      }
     }
 
     requests.push(now);
@@ -166,12 +84,13 @@ export default async function handler(req, res) {
 
   if (!url) {
     res.setHeader('Content-Type', 'text/html');
-    const htmlResponse = createErrorHtml(
-      'Parameter URL Hilang',
-      'Parameter URL tidak ditemukan dalam permintaan.',
-      'Gunakan format: /api/proxy?url=TARGET_URL'
-    );
-    return res.status(400).send(htmlResponse);
+    try {
+      const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
+      return res.status(400).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=missing-url&remainingRequests=${maxRequests - requests.length}&maxRequests=${maxRequests}";</script></body>`));
+    } catch (error) {
+      console.error('Error reading index.html:', error);
+      return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+    }
   }
 
   try {
@@ -181,12 +100,13 @@ export default async function handler(req, res) {
     }
   } catch (e) {
     res.setHeader('Content-Type', 'text/html');
-    const htmlResponse = createErrorHtml(
-      'Format URL Tidak Valid',
-      `URL yang diberikan tidak valid: ${url}.`,
-      'Pastikan URL dimulai dengan http:// atau https://.'
-    );
-    return res.status(400).send(htmlResponse);
+    try {
+      const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
+      return res.status(400).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=invalid-url&invalidUrl=${encodeURIComponent(url || 'URL')}";`));
+    } catch (error) {
+      console.error('Error reading index.html:', error);
+      return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+    }
   }
 
   try {
@@ -237,15 +157,15 @@ export default async function handler(req, res) {
       const buffer = await response.arrayBuffer();
       return res.status(response.status).send(Buffer.from(buffer));
     }
-
   } catch (error) {
     console.error('Proxy error:', error);
     res.setHeader('Content-Type', 'text/html');
-    const htmlResponse = createErrorHtml(
-      'Gagal Mengambil Data',
-      'Terjadi kesalahan saat mencoba mengambil data dari URL.',
-      `Pesan kesalahan: ${error.message}`
-    );
-    return res.status(502).send(htmlResponse);
+    try {
+      const htmlResponse = await fs.readFile(path.join(process.cwd(), 'public/index.html'), 'utf-8');
+      return res.status(502).send(htmlResponse.replace('</body>', `<script>window.location.search = "?errorType=fetch-failed&errorMessage=${encodeURIComponent(error.message)}";</script></body>`));
+    } catch (fileError) {
+      console.error('Error reading index.html:', fileError);
+      return res.status(500).send('<script>window.location.search = "?errorType=server";</script>');
+    }
   }
 }
