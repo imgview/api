@@ -40,7 +40,7 @@ export default async function handler(req, res) {
   } else {
     const now = Date.now();
     const oneHour = 3600000;
-    const maxRequests = 50;
+    const maxRequests = 1;
     
     if (!rateLimit.has(ip)) {
       rateLimit.set(ip, []);
