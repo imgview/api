@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "api/image-proxy.js": {
+      "maxDuration": 30,
+      "memory": 3008
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/image-proxy",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=86400" },
+        { "key": "CDN-Cache-Control", "value": "public, max-age=31536000" }
+      ]
+    }
+  ]
+}
