@@ -16,6 +16,87 @@ setInterval(() => {
   }
 }, 600000);
 
+// Fungsi untuk membuat HTML respons
+function createErrorHtml(title, message, additionalInfo = '') {
+  return `
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          margin: 0;
+          padding: 0;
+          background: linear-gradient(to bottom, #f0f4f8, #d9e2ec);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          color: #333;
+        }
+        .container {
+          background-color: #fff;
+          padding: 40px;
+          border-radius: 12px;
+          box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+          text-align: center;
+          max-width: 500px;
+          width: 90%;
+        }
+        h1 {
+          color: #d32f2f;
+          font-size: 2em;
+          margin-bottom: 20px;
+        }
+        p {
+          font-size: 1.2em;
+          line-height: 1.5;
+          margin-bottom: 20px;
+        }
+        .icon {
+          font-size: 3em;
+          color: #d32f2f;
+          margin-bottom: 20px;
+        }
+        .button {
+          display: inline-block;
+          padding: 10px 20px;
+          background-color: #1976d2;
+          color: white;
+          text-decoration: none;
+          border-radius: 5px;
+          font-size: 1em;
+          transition: background-color 0.3s;
+        }
+        .button:hover {
+          background-color: #1565c0;
+        }
+        .footer {
+          margin-top: 30px;
+          font-size: 0.9em;
+          color: #666;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="icon">⚠️</div>
+        <h1>${title}</h1>
+        <p>${message}</p>
+        ${additionalInfo ? `<p>${additionalInfo}</p>` : ''}
+        <a href="/support" class="button">Hubungi Dukungan</a>
+        <div class="footer">
+          &copy; ${new Date().getFullYear()} Nama Perusahaan Anda. Semua hak dilindungi.
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -43,7 +124,7 @@ export default async function handler(req, res) {
   } else {
     const now = Date.now();
     const oneHour = 3600000;
-    const maxRequests = 5;
+    const maxRequests = 1;
 
     if (!rateLimit.has(ip)) {
       rateLimit.set(ip, []);
@@ -61,89 +142,11 @@ export default async function handler(req, res) {
       res.setHeader('X-RateLimit-Reset', resetTime.toISOString());
       res.setHeader('Content-Type', 'text/html');
 
-      // HTML untuk rate limit
-      const htmlResponse = `
-        <!DOCTYPE html>
-        <html lang="id">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Batas Permintaan Tercapai</title>
-          <style>
-            body {
-              font-family: 'Segoe UI', Arial, sans-serif;
-              margin: 0;
-              padding: 0;
-              background: linear-gradient(to bottom, #f0f4f8, #d9e2ec);
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              min-height: 100vh;
-              color: #333;
-            }
-            .container {
-              background-color: #fff;
-              padding: 40px;
-              border-radius: 12px;
-              box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-              text-align: center;
-              max-width: 500px;
-              width: 90%;
-            }
-            h1 {
-              color: #d32f2f;
-              font-size: 2em;
-              margin-bottom: 20px;
-            }
-            p {
-              font-size: 1.2em;
-              line-height: 1.5;
-              margin-bottom: 20px;
-            }
-            .icon {
-              font-size: 3em;
-              color: #d32f2f;
-              margin-bottom: 20px;
-            }
-            .button {
-              display: inline-block;
-              padding: 10px 20px;
-              background-color: #1976d2;
-              color: white;
-              text-decoration: none;
-              border-radius: 5px;
-              font-size: 1em;
-              transition: background-color 0.3s;
-            }
-            .button:hover {
-              background-color: #1565c0;
-            }
-            .footer {
-              margin-top: 30px;
-              font-size: 0.9em;
-              color: #666;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="icon">⚠️</div>
-            <h1>Batas Permintaan Tercapai</h1>
-            <p>
-              Maaf, Anda telah mencapai batas maksimum <strong>${maxRequests} permintaan per jam</strong>.
-              Silakan coba lagi dalam <strong>${remainingMinutes} menit</strong>.
-            </p>
-            <p>
-              Untuk informasi lebih lanjut, hubungi tim dukungan kami.
-            </p>
-            <a href="/support" class="button">Hubungi Dukungan</a>
-            <div class="footer">
-              &copy; ${new Date().getFullYear()} Nama Perusahaan Anda. Semua hak dilindungi.
-            </div>
-          </div>
-        </body>
-        </html>
-      `;
+      const htmlResponse = createErrorHtml(
+        'Batas Permintaan Tercapai',
+        `Maaf, Anda telah mencapai batas maksimum ${maxRequests} permintaan per jam.`,
+        `Silakan coba lagi dalam ${remainingMinutes} menit.`
+      );
 
       return res.status(429).send(htmlResponse);
     }
@@ -162,16 +165,13 @@ export default async function handler(req, res) {
   const { url } = req.query;
 
   if (!url) {
-    return res.status(400).json({ 
-      error: 'Missing url parameter',
-      usage: '/api/proxy?url=TARGET_URL',
-      status: isAdmin ? 'admin (unlimited)' : 'public (limited)',
-      debug: {
-        your_ip: ip,
-        whitelisted_ips: ADMIN_IPS,
-        is_admin: isAdmin
-      }
-    });
+    res.setHeader('Content-Type', 'text/html');
+    const htmlResponse = createErrorHtml(
+      'Parameter URL Hilang',
+      'Parameter URL tidak ditemukan dalam permintaan.',
+      'Gunakan format: /api/proxy?url=TARGET_URL'
+    );
+    return res.status(400).send(htmlResponse);
   }
 
   try {
@@ -180,10 +180,13 @@ export default async function handler(req, res) {
       throw new Error('Invalid protocol');
     }
   } catch (e) {
-    return res.status(400).json({ 
-      error: 'Invalid URL format',
-      received: url
-    });
+    res.setHeader('Content-Type', 'text/html');
+    const htmlResponse = createErrorHtml(
+      'Format URL Tidak Valid',
+      `URL yang diberikan tidak valid: ${url}.`,
+      'Pastikan URL dimulai dengan http:// atau https://.'
+    );
+    return res.status(400).send(htmlResponse);
   }
 
   try {
@@ -237,10 +240,12 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Proxy error:', error);
-    return res.status(502).json({ 
-      error: 'Fetch failed', 
-      message: error.message,
-      url: url
-    });
+    res.setHeader('Content-Type', 'text/html');
+    const htmlResponse = createErrorHtml(
+      'Gagal Mengambil Data',
+      'Terjadi kesalahan saat mencoba mengambil data dari URL.',
+      `Pesan kesalahan: ${error.message}`
+    );
+    return res.status(502).send(htmlResponse);
   }
 }
