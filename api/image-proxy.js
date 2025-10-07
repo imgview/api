@@ -1,7 +1,7 @@
-// api/image-proxy.js - API dengan parameter custom h dan q
+// api/image-proxy.js
+import sharp from 'sharp';
 
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -11,17 +11,14 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method tidak diizinkan' });
-  }
-
   try {
     const { url, h, w, q } = req.query;
 
+    console.log('Received parameters:', { url, h, w, q });
+
     if (!url) {
       return res.status(400).json({ 
-        error: 'Parameter URL gambar diperlukan',
-        usage: 'GET /api/image-proxy?url=https://example.com/image.jpg&h=300&q=80'
+        error: 'Parameter URL gambar diperlukan'
       });
     }
 
@@ -53,11 +50,16 @@ export default async function handler(req, res) {
     let imageData = Buffer.from(imageBuffer);
     let contentType = response.headers.get('content-type') || 'image/jpeg';
 
+    console.log('Original image loaded:', { 
+      contentType,
+      size: imageData.length,
+      hasParams: !!(h || w || q)
+    });
+
     // Process image if parameters are provided
     if (h || w || q) {
       try {
-        // You'll need to install sharp: npm install sharp
-        const sharp = require('sharp');
+        console.log('Starting Sharp processing...', { h, w, q });
         
         let sharpInstance = sharp(imageData);
         
@@ -66,29 +68,41 @@ export default async function handler(req, res) {
           const height = h ? parseInt(h) : null;
           const width = w ? parseInt(w) : null;
           
+          console.log('Resizing to:', { width, height });
+          
           sharpInstance = sharpInstance.resize(width, height, {
             fit: 'inside',
             withoutEnlargement: true
           });
         }
         
-        // Adjust quality if provided (for JPEG/WebP)
+        // Adjust quality if provided
         const quality = q ? parseInt(q) : undefined;
-        if (quality && (contentType.includes('jpeg') || contentType.includes('webp'))) {
-          sharpInstance = sharpInstance.jpeg({ quality }); // or .webp({ quality })
+        console.log('Quality setting:', quality);
+        
+        if (quality !== undefined) {
+          if (contentType.includes('jpeg') || contentType.includes('jpg')) {
+            sharpInstance = sharpInstance.jpeg({ quality });
+          } else if (contentType.includes('webp')) {
+            sharpInstance = sharpInstance.webp({ quality });
+          } else if (contentType.includes('png')) {
+            sharpInstance = sharpInstance.png({ quality });
+          }
         }
         
         imageData = await sharpInstance.toBuffer();
         
+        console.log('Sharp processing successful, new size:', imageData.length);
+        
       } catch (sharpError) {
-        console.warn('Sharp processing failed, returning original image:', sharpError.message);
-        // Continue with original image if processing fails
+        console.error('Sharp processing FAILED:', sharpError.message);
+        // Tetap gunakan gambar asli jika processing gagal
       }
     }
 
     // Set appropriate headers
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache 1 hour
+    res.setHeader('Cache-Control', 'public, max-age=3600');
 
     // Send image
     res.status(200).send(imageData);
@@ -100,4 +114,4 @@ export default async function handler(req, res) {
       message: error.message 
     });
   }
-  }
+      }
