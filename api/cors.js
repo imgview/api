@@ -30,6 +30,11 @@ export default async function handler(req, res) {
              || req.headers['x-real-ip'] 
              || 'unknown';
   
+  // Debug: Log IP dan whitelist
+  console.log('🔍 Request IP:', ip);
+  console.log('🔍 Whitelisted IPs:', ADMIN_IPS);
+  console.log('🔍 Is Admin?', ADMIN_IPS.includes(ip));
+  
   // Check admin: hanya by IP whitelist
   const isAdmin = ADMIN_IPS.length > 0 && ADMIN_IPS.includes(ip);
   
@@ -40,7 +45,7 @@ export default async function handler(req, res) {
   } else {
     const now = Date.now();
     const oneHour = 3600000;
-    const maxRequests = 1;
+    const maxRequests = 50;
     
     if (!rateLimit.has(ip)) {
       rateLimit.set(ip, []);
@@ -82,7 +87,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ 
       error: 'Missing url parameter',
       usage: '/api/proxy?url=TARGET_URL',
-      status: isAdmin ? 'admin (unlimited)' : 'public (limited)'
+      status: isAdmin ? 'admin (unlimited)' : 'public (limited)',
+      debug: {
+        your_ip: ip,
+        whitelisted_ips: ADMIN_IPS,
+        is_admin: isAdmin
+      }
     });
   }
   
@@ -155,4 +165,4 @@ export default async function handler(req, res) {
       url: url
     });
   }
-}
+    }
