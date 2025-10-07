@@ -35,7 +35,7 @@ export default async function handler(req, res) {
   console.log('🔍 Is Admin?', ADMIN_IPS.includes(ip));
 
   const isAdmin = ADMIN_IPS.length > 0 && ADMIN_IPS.includes(ip);
-  const maxRequests = 1;
+  const maxRequests = 5;
   let requests = [];
 
   if (!isAdmin) {
