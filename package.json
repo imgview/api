@@ -1,18 +1,11 @@
 {
-  "name": "vercel-image-scraper",
+  "name": "imgview-api",
   "version": "1.0.0",
-  "type": "module",
-  "description": "Image scraper and CORS proxy API using Vercel",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "description": "Image proxy API for wsrv.nl bypass",
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12",
-    "node-fetch": "^3.3.2",
     "sharp": "^0.32.0"
   },
-  "keywords": ["vercel", "api", "scraper", "cors", "proxy"],
-  "author": "Your Name",
-  "license": "MIT"
+  "engines": {
+    "node": "18.x"
+  }
 }
