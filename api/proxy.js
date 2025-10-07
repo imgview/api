@@ -1,7 +1,5 @@
-import { promises as fs } from 'fs';
-import { join } from 'path';
-
 const rateLimit = new Map();
+
 const ADMIN_IPS = (process.env.waduh || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
 setInterval(() => {
@@ -28,25 +26,30 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.headers['x-real-ip'] || 'unknown';
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() 
+             || req.headers['x-real-ip'] 
+             || 'unknown';
 
   console.log('🔍 Request IP:', ip);
   console.log('🔍 Whitelisted IPs:', ADMIN_IPS);
   console.log('🔍 Is Admin?', ADMIN_IPS.includes(ip));
 
   const isAdmin = ADMIN_IPS.length > 0 && ADMIN_IPS.includes(ip);
-  const maxRequests = 1;
-  let requests = [];
 
-  if (!isAdmin) {
+  if (isAdmin) {
+    res.setHeader('X-RateLimit-Status', 'unlimited');
+    res.setHeader('X-RateLimit-Limit', 'unlimited');
+    res.setHeader('X-User-Type', 'admin');
+  } else {
     const now = Date.now();
     const oneHour = 3600000;
+    const maxRequests = 1;
 
     if (!rateLimit.has(ip)) {
       rateLimit.set(ip, []);
     }
 
-    requests = rateLimit.get(ip).filter(time => now - time < oneHour);
+    const requests = rateLimit.get(ip).filter(time => now - time < oneHour);
 
     if (requests.length >= maxRequests) {
       const oldestRequest = Math.min(...requests);
@@ -56,30 +59,13 @@ export default async function handler(req, res) {
       res.setHeader('X-RateLimit-Limit', maxRequests.toString());
       res.setHeader('X-RateLimit-Remaining', '0');
       res.setHeader('X-RateLimit-Reset', resetTime.toISOString());
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('X-Error-Type', 'rate-limit');
 
-      try {
-        const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
-        console.log('✅ Successfully read index.html for rate-limit');
-        return res.status(429).send(htmlResponse.replace('</head>', `<meta name="error-type" content="rate-limit"></head>`));
-      } catch (error) {
-        console.error('❌ Error reading index.html for rate-limit:', error);
-        return res.status(500).send(`
-          <!DOCTYPE html>
-          <html lang="id">
-          <head>
-            <meta charset="UTF-8">
-            <title>Kesalahan Server</title>
-            <meta name="error-type" content="server">
-          </head>
-          <body>
-            <h1>Kesalahan Server</h1>
-            <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
-          </body>
-          </html>
-        `);
-      }
+      return res.status(429).json({
+        error: 'Rate limit exceeded',
+        message: `Maximum ${maxRequests} requests per hour. Try again in ${remainingMinutes} minutes.`,
+        limit: maxRequests,
+        reset_at: resetTime.toISOString()
+      });
     }
 
     requests.push(now);
@@ -96,29 +82,16 @@ export default async function handler(req, res) {
   const { url } = req.query;
 
   if (!url) {
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('X-Error-Type', 'missing-url');
-    try {
-      const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
-      console.log('✅ Successfully read index.html for missing-url');
-      return res.status(400).send(htmlResponse.replace('</head>', `<meta name="error-type" content="missing-url"></head>`));
-    } catch (error) {
-      console.error('❌ Error reading index.html for missing-url:', error);
-      return res.status(500).send(`
-        <!DOCTYPE html>
-        <html lang="id">
-        <head>
-          <meta charset="UTF-8">
-          <title>Kesalahan Server</title>
-          <meta name="error-type" content="server">
-        </head>
-        <body>
-          <h1>Kesalahan Server</h1>
-          <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
-        </body>
-        </html>
-      `);
-    }
+    return res.status(400).json({ 
+      error: 'Missing url parameter',
+      usage: '/api/proxy?url=TARGET_URL',
+      status: isAdmin ? 'admin (unlimited)' : 'public (limited)',
+      debug: {
+        your_ip: ip,
+        whitelisted_ips: ADMIN_IPS,
+        is_admin: isAdmin
+      }
+    });
   }
 
   try {
@@ -127,29 +100,10 @@ export default async function handler(req, res) {
       throw new Error('Invalid protocol');
     }
   } catch (e) {
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('X-Error-Type', 'invalid-url');
-    try {
-      const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
-      console.log('✅ Successfully read index.html for invalid-url');
-      return res.status(400).send(htmlResponse.replace('</head>', `<meta name="error-type" content="invalid-url"></head>`));
-    } catch (error) {
-      console.error('❌ Error reading index.html for invalid-url:', error);
-      return res.status(500).send(`
-        <!DOCTYPE html>
-        <html lang="id">
-        <head>
-          <meta charset="UTF-8">
-          <title>Kesalahan Server</title>
-          <meta name="error-type" content="server">
-        </head>
-        <body>
-          <h1>Kesalahan Server</h1>
-          <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
-        </body>
-        </html>
-      `);
-    }
+    return res.status(400).json({ 
+      error: 'Invalid URL format',
+      received: url
+    });
   }
 
   try {
@@ -201,29 +155,11 @@ export default async function handler(req, res) {
       return res.status(response.status).send(Buffer.from(buffer));
     }
   } catch (error) {
-    console.error('❌ Proxy error:', error);
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('X-Error-Type', 'fetch-failed');
-    try {
-      const htmlResponse = await fs.readFile(join(process.cwd(), 'public/index.html'), 'utf-8');
-      console.log('✅ Successfully read index.html for fetch-failed');
-      return res.status(502).send(htmlResponse.replace('</head>', `<meta name="error-type" content="fetch-failed"></head>`));
-    } catch (fileError) {
-      console.error('❌ Error reading index.html for fetch-failed:', fileError);
-      return res.status(500).send(`
-        <!DOCTYPE html>
-        <html lang="id">
-        <head>
-          <meta charset="UTF-8">
-          <title>Kesalahan Server</title>
-          <meta name="error-type" content="server">
-        </head>
-        <body>
-          <h1>Kesalahan Server</h1>
-          <p>Gagal memuat halaman error. Silakan coba lagi nanti.</p>
-        </body>
-        </html>
-      `);
-    }
+    console.error('Proxy error:', error);
+    return res.status(502).json({ 
+      error: 'Fetch failed', 
+      message: error.message,
+      url: url
+    });
   }
-      }
+}
