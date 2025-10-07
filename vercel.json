@@ -3,6 +3,14 @@
     "api/image-proxy.js": {
       "maxDuration": 30,
       "memory": 3008
+    },
+    "api/sip.js": {
+      "maxDuration": 15,
+      "memory": 1024
+    },
+    "api/simple-proxy.js": {
+      "maxDuration": 15,
+      "memory": 1024
     }
   },
   "headers": [
@@ -11,6 +19,20 @@
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=86400" },
         { "key": "CDN-Cache-Control", "value": "public, max-age=31536000" }
+      ]
+    },
+    {
+      "source": "/api/sip",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" },
+        { "key": "CDN-Cache-Control", "value": "public, max-age=86400" }
+      ]
+    },
+    {
+      "source": "/api/simple-proxy",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" },
+        { "key": "CDN-Cache-Control", "value": "public, max-age=86400" }
       ]
     }
   ]
