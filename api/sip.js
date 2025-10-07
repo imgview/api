@@ -1,17 +1,22 @@
-// api/simple-proxy.js
+// api/sip/[...url].js
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { url } = req.query;
   
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  // Join the URL parts back together
+  const imageUrl = Array.isArray(url) ? url.join('/') : url;
+  
+  if (!imageUrl) {
+    return res.status(400).json({ error: 'URL required' });
+  }
 
+  // Add protocol if missing
+  const fullUrl = imageUrl.startsWith('http') ? imageUrl : `https://${imageUrl}`;
+  
   try {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'URL required' });
-
-    const response = await fetch(url, {
+    const response = await fetch(fullUrl, {
       signal: AbortSignal.timeout(10000)
     });
-
+    
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     
     const contentType = response.headers.get('content-type');
@@ -19,15 +24,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Not an image' });
     }
 
-    // Copy headers
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=3600');
-
-    // Stream the image
-    const arrayBuffer = await response.arrayBuffer();
-    res.status(200).send(Buffer.from(arrayBuffer));
-
+    
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+    
   } catch (error) {
-    res.status(500).json({ error: 'Failed to proxy image' });
+    res.status(500).json({ error: 'Proxy failed' });
   }
-}
+      }
