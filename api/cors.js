@@ -1,6 +1,6 @@
 const rateLimit = new Map();
 
-const ADMIN_IPS = (process.env.ADMIN_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean);
+const ADMIN_IPS = (process.env.waduh || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
 setInterval(() => {
   const now = Date.now();
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
   } else {
     const now = Date.now();
     const oneHour = 3600000;
-    const maxRequests = 50;
+    const maxRequests = 1;
     
     if (!rateLimit.has(ip)) {
       rateLimit.set(ip, []);
