@@ -30,12 +30,10 @@ export default async function handler(req, res) {
              || req.headers['x-real-ip'] 
              || 'unknown';
   
-  // Debug: Log IP dan whitelist
   console.log('🔍 Request IP:', ip);
   console.log('🔍 Whitelisted IPs:', ADMIN_IPS);
   console.log('🔍 Is Admin?', ADMIN_IPS.includes(ip));
   
-  // Check admin: hanya by IP whitelist
   const isAdmin = ADMIN_IPS.length > 0 && ADMIN_IPS.includes(ip);
   
   if (isAdmin) {
@@ -165,4 +163,4 @@ export default async function handler(req, res) {
       url: url
     });
   }
-        }
+              }
