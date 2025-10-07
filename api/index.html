@@ -34,7 +34,7 @@
       font-size: 1.2em;
       line-height: 1.5;
       margin-bottom: 20px;
-      display: none; /* Sembunyikan semua pesan secara default */
+      display: none;
     }
     .icon {
       font-size: 3em;
@@ -59,7 +59,6 @@
       font-size: 0.9em;
       color: #666;
     }
-    /* Kelas untuk menampilkan pesan tertentu */
     .error-missing-url.active { display: block; }
     .error-rate-limit.active { display: block; font-weight: bold; }
     .error-invalid-url.active { display: block; font-style: italic; }
@@ -71,7 +70,6 @@
   <div class="container">
     <div class="icon">⚠️</div>
     <h1 id="title">Kesalahan Permintaan</h1>
-    <!-- Pesan untuk setiap jenis error -->
     <p class="error-rate-limit">Maaf, Anda telah mencapai batas maksimum <span id="maxRequests">1</span> permintaan per jam. Silakan coba lagi dalam <span id="remainingMinutes">X</span> menit.</p>
     <p class="error-missing-url">url parameter hilang, silahkan masukkan parameter. Request anda tersisa: <strong><span id="remainingRequests">X</span></strong> dari <span id="maxRequestsMissing">1</span> permintaan per jam.</p>
     <p class="error-invalid-url">URL yang diberikan tidak valid: <span id="invalidUrl">URL</span>. Pastikan URL dimulai dengan http:// atau https://.</p>
@@ -79,20 +77,17 @@
     <p class="error-server">Kesalahan Server: Gagal memuat halaman error.</p>
     <a href="/support" class="button">Hubungi Dukungan</a>
     <div class="footer">
-      &copy; <span id="year">2025</span> Nama Perusahaan Anda. Semua hak dilindungi.
+      &copy; 2025 Nama Perusahaan Anda. Semua hak dilindungi.
     </div>
   </div>
   <script>
-    // Ambil parameter dari URL
-    const params = new URLSearchParams(window.location.search);
-    const errorType = params.get('errorType') || 'server';
-    const remainingMinutes = params.get('remainingMinutes') || 'X';
-    const remainingRequests = params.get('remainingRequests') || 'X';
-    const maxRequests = params.get('maxRequests') || '1';
-    const invalidUrl = params.get('invalidUrl') || 'URL';
-    const errorMessage = params.get('errorMessage') || 'Unknown';
+    const errorType = document.querySelector('meta[name="error-type"]')?.content || 'server';
+    const maxRequests = document.querySelector('meta[name="max-requests"]')?.content || '1';
+    const remainingMinutes = document.querySelector('meta[name="remaining-minutes"]')?.content || 'X';
+    const remainingRequests = document.querySelector('meta[name="remaining-requests"]')?.content || 'X';
+    const invalidUrl = document.querySelector('meta[name="invalid-url"]')?.content || 'URL';
+    const errorMessage = document.querySelector('meta[name="error-message"]')?.content || 'Unknown';
 
-    // Set judul dan tampilkan pesan yang sesuai
     const titleElement = document.getElementById('title');
     const messages = document.querySelectorAll('p');
     messages.forEach(msg => msg.classList.remove('active'));
@@ -119,9 +114,6 @@
       titleElement.textContent = 'Kesalahan Server';
       document.querySelector('.error-server').classList.add('active');
     }
-
-    // Set tahun di footer
-    document.getElementById('year').textContent = new Date().getFullYear();
   </script>
 </body>
-  </html>
+</html>
