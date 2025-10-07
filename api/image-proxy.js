@@ -1,6 +1,37 @@
 // api/image-proxy.js
 import sharp from 'sharp';
 
+// Timeout configuration
+const FETCH_TIMEOUT = 10000; // 10 seconds
+const MAX_RETRIES = 2;
+
+async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      return response;
+      
+    } catch (error) {
+      console.log(`Fetch attempt ${i + 1} failed:`, error.message);
+      
+      if (i === retries) {
+        throw error;
+      }
+      
+      // Wait before retry (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+    }
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -14,7 +45,7 @@ export default async function handler(req, res) {
   try {
     const { url, h, w, q, fit = 'inside' } = req.query;
 
-    console.log('Received parameters:', { url, h, w, q, fit });
+    console.log('Processing request for URL:', url?.substring(0, 100) + '...');
 
     if (!url) {
       return res.status(400).json({ 
@@ -22,122 +53,167 @@ export default async function handler(req, res) {
       });
     }
 
-    // Validate URL
+    // Validate and sanitize URL
     let imageUrl;
     try {
       imageUrl = new URL(url);
+      
+      // Security: Block localhost and private IPs
+      const hostname = imageUrl.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || 
+          hostname.startsWith('192.168.') || hostname.startsWith('10.') ||
+          hostname.endsWith('.local')) {
+        return res.status(400).json({ error: 'URL tidak diizinkan' });
+      }
+      
     } catch (error) {
       return res.status(400).json({ error: 'URL tidak valid' });
     }
 
-    // Fetch the original image
-    const response = await fetch(imageUrl.toString(), {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ImageBot/1.0)',
-        'Accept': 'image/*,*/*;q=0.8',
-        'Referer': imageUrl.origin
-      }
-    });
+    // Fetch the original image with retry mechanism
+    let response;
+    try {
+      response = await fetchWithTimeoutAndRetry(imageUrl.toString(), {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; ImageProxy/1.0)',
+          'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+          'Referer': imageUrl.origin
+        },
+        // Vercel-specific optimizations
+        compress: true,
+        follow: 5 // Maximum redirects
+      });
+    } catch (fetchError) {
+      console.error('All fetch attempts failed:', fetchError.message);
+      return res.status(504).json({ 
+        error: 'Gagal mengambil gambar dari sumber',
+        message: 'Timeout atau koneksi terputus'
+      });
+    }
 
     if (!response.ok) {
+      console.error('Upstream response not OK:', response.status);
       return res.status(response.status).json({ 
         error: `Gagal mengambil gambar: ${response.status}` 
       });
     }
 
+    // Check content type
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.startsWith('image/')) {
+      return res.status(400).json({ 
+        error: 'URL tidak mengarah ke gambar yang valid' 
+      });
+    }
+
+    // Check file size limit (10MB untuk Vercel)
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
+      return res.status(413).json({ 
+        error: 'Gambar terlalu besar (max 10MB)' 
+      });
+    }
+
     // Get image data
     const imageBuffer = await response.arrayBuffer();
-    let imageData = Buffer.from(imageBuffer);
-    let contentType = response.headers.get('content-type') || 'image/jpeg';
+    
+    if (imageBuffer.byteLength === 0) {
+      return res.status(400).json({ 
+        error: 'Gambar kosong atau korup' 
+      });
+    }
 
-    console.log('Original image loaded:', { 
+    let imageData = Buffer.from(imageBuffer);
+    let outputContentType = contentType;
+
+    console.log('Image loaded successfully:', { 
       contentType,
-      size: imageData.length
+      size: imageData.length,
+      hasTransformations: !!(h || w || q)
     });
 
     // Process image if parameters are provided
     if (h || w || q) {
       try {
-        console.log('Starting Sharp processing with optimized settings...');
-        
+        const height = h ? parseInt(h) : undefined;
+        const width = w ? parseInt(w) : undefined;
+        const quality = q ? parseInt(q) : 80;
+
+        console.log('Applying transformations:', { width, height, quality });
+
         let sharpInstance = sharp(imageData, {
-          // Tambahan konfigurasi untuk kualitas lebih baik
           failOnError: false,
-          limitInputPixels: false
+          limitInputPixels: Math.pow(2, 24) // Increase pixel limit
         });
-        
-        // Resize dengan konfigurasi optimal
-        if (h || w) {
-          const height = h ? parseInt(h) : null;
-          const width = w ? parseInt(w) : null;
-          
-          console.log('Resizing with optimized kernel:', { width, height });
-          
+
+        // Resize if dimensions provided
+        if (height || width) {
           sharpInstance = sharpInstance.resize(width, height, {
-            fit: fit, // 'inside', 'cover', 'fill', etc
+            fit: fit,
             withoutEnlargement: true,
-            kernel: sharp.kernel.lanczos3,    // ← KUNCI UTAMA untuk kehalusan
-            fastShrinkOnLoad: false,          // ← Quality over speed
-            position: 'center',
-            background: { r: 255, g: 255, b: 255, alpha: 1 } // White background untuk fit=contain
+            kernel: sharp.kernel.lanczos3,
+            fastShrinkOnLoad: false
           });
         }
-        
-        // Quality optimization dengan preset yang lebih baik
-        const quality = q ? parseInt(q) : 80;
-        console.log('Quality optimization:', quality);
-        
-        // Konversi ke format optimal berdasarkan kualitas
+
+        // Adjust quality
         if (contentType.includes('jpeg') || contentType.includes('jpg')) {
           sharpInstance = sharpInstance.jpeg({ 
-            quality,
-            mozjpeg: true,      // ← Kompresi lebih baik
-            chromaSubsampling: '4:4:4' // ← Kurangi chroma subsampling
+            quality: Math.min(quality, 100),
+            mozjpeg: true,
+            chromaSubsampling: '4:4:4'
           });
-          contentType = 'image/jpeg';
-        } else if (contentType.includes('webp')) {
-          sharpInstance = sharpInstance.webp({ 
-            quality,
-            effort: 4           // ← Kompresi lebih baik (0-6)
-          });
+          outputContentType = 'image/jpeg';
         } else if (contentType.includes('png')) {
           sharpInstance = sharpInstance.png({ 
-            quality: quality * 10, // PNG quality range 0-100
-            compressionLevel: 9, // ← Kompresi maksimal
-            palette: true       // ← Optimize for smaller files
+            quality: Math.min(quality * 10, 100),
+            compressionLevel: 9
+          });
+        } else if (contentType.includes('webp')) {
+          sharpInstance = sharpInstance.webp({ 
+            quality: Math.min(quality, 100),
+            effort: 4
           });
         } else {
-          // Default to JPEG untuk format lain
+          // Default to JPEG for other formats
           sharpInstance = sharpInstance.jpeg({ 
-            quality,
-            mozjpeg: true 
+            quality: Math.min(quality, 100),
+            mozjpeg: true
           });
-          contentType = 'image/jpeg';
+          outputContentType = 'image/jpeg';
         }
-        
+
         imageData = await sharpInstance.toBuffer();
         
-        console.log('Optimized processing successful, new size:', imageData.length);
-        
+        console.log('Image processing successful, output size:', imageData.length);
+
       } catch (sharpError) {
-        console.error('Sharp processing failed:', sharpError.message);
-        // Fallback ke gambar asli
+        console.error('Image processing failed, using original:', sharpError.message);
+        // Continue with original image
       }
     }
 
-    // Set cache headers yang lebih agresif
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000'); // 1 day browser, 1 year CDN
-    res.setHeader('Vary', 'Accept, Content-Type');
+    // Set headers
+    res.setHeader('Content-Type', outputContentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000');
+    res.setHeader('Vary', 'Accept');
 
-    // Send image
+    // Send the image
     res.status(200).send(imageData);
 
   } catch (error) {
-    console.error('Image proxy error:', error);
+    console.error('Unexpected error:', error);
+    
+    // More specific error responses
+    if (error.name === 'AbortError') {
+      return res.status(504).json({ 
+        error: 'Timeout saat mengambil gambar' 
+      });
+    }
+    
     res.status(500).json({ 
-      error: 'Gagal memproxy gambar', 
-      message: error.message 
+      error: 'Terjadi kesalahan internal',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi'
     });
   }
-          }
+        }
