@@ -1,8 +1,6 @@
-const fetch = require('node-fetch');
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
 
@@ -17,4 +15,4 @@ module.exports = async (req, res) => {
   } catch (err) {
     res.status(500).end(JSON.stringify({ ok: false, error: err.message }));
   }
-};
+}
