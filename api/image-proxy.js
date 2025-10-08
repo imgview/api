@@ -117,6 +117,13 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
   }
 }
 
+// Function to serve HTML page with dynamic data
+function serveHTML(res, data = {}) {
+  // Redirect to /api/index.html with query parameters
+  const params = new URLSearchParams(data);
+  res.redirect(302, `/api/index.html?${params.toString()}`);
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -135,40 +142,20 @@ export default async function handler(req, res) {
     // Rate limiting check
     const rateLimitResult = checkRateLimit(clientIP, whitelisted);
     
-if (!rateLimitResult.allowed) {
-  const resetTime = new Date(rateLimitResult.resetAt);
-  const now = new Date();
-  const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
+    if (!rateLimitResult.allowed) {
+      const resetTime = new Date(rateLimitResult.resetAt);
+      const now = new Date();
+      const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
 
-  res.setHeader('Content-Type', 'text/html');
-  return res.status(429).send(`
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Akses Terbatas</title>
-    </head>
-    <style>
-      body { background: #1a1a1a; color: #999; }
-      h1 { color: #d23b3b; }
-      .mnt, .ip { color: green; }
-      .limit { text-align: center; margin: 40px 0px; padding: 5px; background: #111; border-radius: 8px; max-width.l: 100%; }
-	  .info { background: #222; padding: 5px 18px; border-radius: 8px; max-width: 100%; border: 1px solid #333; }
-	  .try { font-size: 18px; }
-    </style>
-    <body>
-      <div class="limit">  		
-      <h1>Akses Terbatas</h1>
-      <p class="try">Coba lagi dalam <b class="mnt">${minutesLeft}</b> Menit</strong></p>
-      </div>
-      <div class="info">
-      <p>IP Anda: <span class="ip">${clientIP}</span</p>
-      <p>Sisa request: 0</p>
-      <p>Limit: ${MAX_REQUESTS_NON_WHITELIST} request per jam</p>
-      </div>
-    </body>
-    </html>
-  `);
-}
+      // Serve rate limit page via index.html
+      serveHTML(res, {
+        type: 'rate-limit',
+        clientIP: clientIP,
+        minutesLeft: minutesLeft,
+        maxRequests: MAX_REQUESTS_NON_WHITELIST
+      });
+      return;
+    }
 
     const { url, h, w, q, fit = 'inside', format } = req.query;
 
@@ -181,86 +168,17 @@ if (!rateLimitResult.allowed) {
 
     // Special endpoint to check IP and whitelist status
     if (!url || url === 'check' || url === 'info' || url === 'status') {
-  res.setHeader('Content-Type', 'text/html');
-  return res.status(200).send(`
-    <html>
-    <head>
-      <title>Image Proxy API - Info</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          max-width: 600px;
-          margin: 20px auto;
-          padding: 15px;
-          line-height: 1.5;
-          background: #f9f9f9;
-          color: #333;
-        }
-        h2 {
-          color: #2d3436;
-          text-align: center;
-          margin-bottom: 20px;
-        }
-        .section {
-          background: #ffffff;
-          padding: 10px 15px;
-          margin-bottom: 10px;
-          border-left: 5px solid #0984e3;
-          border-radius: 5px;
-        }
-        .section.info {
-          border-left-color: #00b894;
-        }
-        .section.limit {
-          border-left-color: #d63031;
-        }
-        p {
-          margin: 5px 0;
-        }
-        a {
-          color: #0984e3;
-          text-decoration: none;
-        }
-        a:hover {
-          text-decoration: underline;
-        }
-        hr {
-          margin: 15px 0;
-          border: 0;
-          border-top: 1px solid #ccc;
-        }
-        @media (max-width: 400px) {
-          body {
-            padding: 10px;
-            margin: 10px;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <h2>Image Proxy API</h2>
-
-      <div class="section limit">
-        <p><strong>IP Anda:</strong> ${clientIP}</p>
-        <p><strong>Whitelist:</strong> ${whitelisted ? 'Ya' : 'Tidak'}</p>
-        <p><strong>Rate Limit:</strong> ${whitelisted ? 'unlimited' : `${rateLimitResult.remaining}/${MAX_REQUESTS_NON_WHITELIST}`}</p>
-        <p><strong>Reset At:</strong> ${rateLimitResult.resetAt ? new Date(rateLimitResult.resetAt).toLocaleString('id-ID') : '-'}</p>
-      </div>
-
-      <div class="section info">
-        <p><strong>Endpoint:</strong> /api/image-proxy</p>
-        <p><strong>Required Params:</strong> url</p>
-        <p><strong>Optional Params:</strong> w, h, q, fit, format</p>
-        <p><strong>Example:</strong> /api/image-proxy?url=https://example.com/image.jpg&w=800&q=80&format=webp</p>
-        <p><strong>Supported Formats:</strong> webp, jpeg, png, avif</p>
-        <p><strong>Max Image Size:</strong> 10MB</p>
-        <p>Dokumentasi: <a href="https://github.com/yourusername/image-proxy" target="_blank">GitHub</a></p>
-      </div>
-    </body>
-    </html>
-  `);
-}
+      // Serve info page via index.html
+      serveHTML(res, {
+        type: 'info',
+        clientIP: clientIP,
+        whitelisted: whitelisted,
+        maxRequests: MAX_REQUESTS_NON_WHITELIST,
+        remaining: rateLimitResult.remaining,
+        resetAt: rateLimitResult.resetAt || ''
+      });
+      return;
+    }
 
     // Validate and sanitize URL
     let imageUrl;
@@ -463,4 +381,4 @@ if (!rateLimitResult.allowed) {
       message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi'
     });
   }
-      }
+}
