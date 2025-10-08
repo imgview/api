@@ -181,27 +181,86 @@ if (!rateLimitResult.allowed) {
 
     // Special endpoint to check IP and whitelist status
     if (!url || url === 'check' || url === 'info' || url === 'status') {
-      return res.status(200).json({
-        success: true,
-        message: 'Image Proxy API - IP Info',
-        yourIP: clientIP,
-        whitelisted: whitelisted,
-        rateLimit: {
-          maxRequests: whitelisted ? 'unlimited' : MAX_REQUESTS_NON_WHITELIST,
-          remaining: rateLimitResult.remaining,
-          resetAt: rateLimitResult.resetAt || null
-        },
-        usage: {
-          endpoint: '/api/image-proxy',
-          requiredParams: ['url'],
-          optionalParams: ['w', 'h', 'q', 'fit', 'format'],
-          example: '/api/image-proxy?url=https://example.com/image.jpg&w=800&q=80&format=webp'
-        },
-        formats: ['webp', 'jpeg', 'png', 'avif'],
-        maxImageSize: '10MB',
-        documentation: 'https://github.com/yourusername/image-proxy'
-      });
-    }
+  res.setHeader('Content-Type', 'text/html');
+  return res.status(200).send(`
+    <html>
+    <head>
+      <title>Image Proxy API - Info</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          max-width: 600px;
+          margin: 20px auto;
+          padding: 15px;
+          line-height: 1.5;
+          background: #f9f9f9;
+          color: #333;
+        }
+        h2 {
+          color: #2d3436;
+          text-align: center;
+          margin-bottom: 20px;
+        }
+        .section {
+          background: #ffffff;
+          padding: 10px 15px;
+          margin-bottom: 10px;
+          border-left: 5px solid #0984e3;
+          border-radius: 5px;
+        }
+        .section.info {
+          border-left-color: #00b894;
+        }
+        .section.limit {
+          border-left-color: #d63031;
+        }
+        p {
+          margin: 5px 0;
+        }
+        a {
+          color: #0984e3;
+          text-decoration: none;
+        }
+        a:hover {
+          text-decoration: underline;
+        }
+        hr {
+          margin: 15px 0;
+          border: 0;
+          border-top: 1px solid #ccc;
+        }
+        @media (max-width: 400px) {
+          body {
+            padding: 10px;
+            margin: 10px;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <h2>Image Proxy API</h2>
+
+      <div class="section limit">
+        <p><strong>IP Anda:</strong> ${clientIP}</p>
+        <p><strong>Whitelist:</strong> ${whitelisted ? 'Ya' : 'Tidak'}</p>
+        <p><strong>Rate Limit:</strong> ${whitelisted ? 'unlimited' : `${rateLimitResult.remaining}/${MAX_REQUESTS_NON_WHITELIST}`}</p>
+        <p><strong>Reset At:</strong> ${rateLimitResult.resetAt ? new Date(rateLimitResult.resetAt).toLocaleString('id-ID') : '-'}</p>
+      </div>
+
+      <div class="section info">
+        <p><strong>Endpoint:</strong> /api/image-proxy</p>
+        <p><strong>Required Params:</strong> url</p>
+        <p><strong>Optional Params:</strong> w, h, q, fit, format</p>
+        <p><strong>Example:</strong> /api/image-proxy?url=https://example.com/image.jpg&w=800&q=80&format=webp</p>
+        <p><strong>Supported Formats:</strong> webp, jpeg, png, avif</p>
+        <p><strong>Max Image Size:</strong> 10MB</p>
+        <p>Dokumentasi: <a href="https://github.com/yourusername/image-proxy" target="_blank">GitHub</a></p>
+      </div>
+    </body>
+    </html>
+  `);
+}
 
     // Validate and sanitize URL
     let imageUrl;
