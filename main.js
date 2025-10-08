@@ -1,40 +1,71 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+// main.js — simple Deno proxy that guarantees warm-up OK
+const FETCH_TIMEOUT = 10000;
 
-serve(async (req) => {
-  const url = new URL(req.url);
-  const target = url.searchParams.get("url");
-  const width = parseInt(url.searchParams.get("w") || "400", 10);
+function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  return fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; DenoImageProxy/1.0)",
+      "Accept": "image/*,*/*;q=0.8",
+      "Referer": new URL(url).origin,
+    },
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
+}
 
-  // Jika root path tanpa parameter -> tampilkan info
+Deno.serve(async (req) => {
+  const urlObj = new URL(req.url);
+  const params = urlObj.searchParams;
+  const target = params.get("url");
+
+  // Health / warm-up: root tanpa query harus balikan 200 OK cepat
   if (!target) {
     return new Response(
-      `✅ ImgView aktif!\nGunakan format:\n?url=<gambar>&w=<lebar>\n\nContoh:\n?url=https://kiryuu02.com/wp-content/uploads/2021/04/niwatori-fighter-459997-HAsjbASi.jpg&w=300`,
+      "OK — Img proxy ready\nUsage: ?url=<image_url>",
       { status: 200, headers: { "Content-Type": "text/plain" } }
     );
   }
 
-  // Rate limit sederhana
-  await new Promise((r) => setTimeout(r, 1000)); // delay 1 detik per request
+  // CORS
+  const baseHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+  if (req.method === "OPTIONS") return new Response("ok", { headers: baseHeaders });
 
+  // Basic validation (blok local/private)
+  let targetUrl;
   try {
-    // Gunakan weserv.nl untuk resize
-    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(
-      target
-    )}&w=${width}&output=webp`;
-
-    const res = await fetch(proxyUrl);
-    if (!res.ok) {
-      throw new Error(`Gagal ambil gambar: ${res.status}`);
+    targetUrl = new URL(target);
+    if (["localhost", "127.0.0.1"].includes(targetUrl.hostname) ||
+        targetUrl.hostname.startsWith("192.168.") ||
+        targetUrl.hostname.startsWith("10.") ||
+        targetUrl.hostname.endsWith(".local")) {
+      return new Response("Access to local addresses denied", { status: 400, headers: baseHeaders });
     }
+  } catch {
+    return new Response("Invalid URL", { status: 400, headers: baseHeaders });
+  }
 
-    const blob = await res.blob();
-    return new Response(blob, {
-      headers: {
-        "Content-Type": "image/webp",
-        "Cache-Control": "public, max-age=3600",
-      },
+  // Perform fetch (non-blocking on startup — only per request)
+  try {
+    const upstream = await fetchWithTimeout(targetUrl.toString());
+    if (!upstream.ok) {
+      // forward upstream status but keep a sane body
+      return new Response(`Upstream error ${upstream.status}`, { status: upstream.status, headers: baseHeaders });
+    }
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    const arrayBuf = await upstream.arrayBuffer();
+    return new Response(arrayBuf, {
+      status: 200,
+      headers: { ...baseHeaders, "Content-Type": contentType, "Cache-Control": "public, max-age=86400" },
     });
-  } catch (e) {
-    return new Response("Error: " + e.message, { status: 500 });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "Fetch failed", message: String(err?.message || err) }), {
+      status: 502,
+      headers: { ...baseHeaders, "Content-Type": "application/json" },
+    });
   }
 });
