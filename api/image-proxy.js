@@ -151,9 +151,8 @@ if (!rateLimitResult.allowed) {
       body { background: #1a1a1a; color: #999; }
       h1 { color: #d23b3b; }
       .mnt, .ip { color: green; }
-      .limit { text-align: center; padding: 50px 0px; }
-      .info { background: #333; padding: 5px 18px; border-radius: 8px; max-width: 100% }
-	  .info p { margin-left: 8px; }
+      .limit { text-align: center; margin: 40px 0px; padding: 5px; background: #111; border-radius: 8px; max-width.l: 100%; }
+	  .info { background: #222; padding: 5px 18px; border-radius: 8px; max-width: 100%; border: 1px solid #333; }
 	  .try { font-size: 18px; }
     </style>
     <body>
