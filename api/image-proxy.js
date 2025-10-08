@@ -10,7 +10,7 @@ const WHITELISTED_IPS = (process.env.WHITELIST_IPS || '').split(',').map(ip => i
 
 // Rate limiting (in-memory - reset on deploy)
 const requestCounts = new Map();
-const MAX_REQUESTS_NON_WHITELIST = 1;
+const MAX_REQUESTS_NON_WHITELIST = 5;
 
 function getClientIP(req) {
   // Get real IP from various headers (Vercel forwards real IP)
@@ -162,7 +162,6 @@ export default async function handler(req, res) {
           <div class="info">
             <p><strong>IP Anda:</strong> ${clientIP}</p>
             <p><strong>Reset pada:</strong> ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
-            <p><strong>Sisa request:</strong> 0</p>
             <p><strong>Limit:</strong> ${MAX_REQUESTS_NON_WHITELIST} request per jam</p>
           </div>
         </body>
