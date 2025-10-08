@@ -135,7 +135,7 @@ export default async function handler(req, res) {
     // Rate limiting check
     const rateLimitResult = checkRateLimit(clientIP, whitelisted);
     
-    if (!rateLimitResult.allowed) {
+if (!rateLimitResult.allowed) {
   const resetTime = new Date(rateLimitResult.resetAt);
   const now = new Date();
   const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
@@ -144,15 +144,27 @@ export default async function handler(req, res) {
   return res.status(429).send(`
     <html>
     <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Akses Terbatas</title>
     </head>
+    <style>
+      body { background: #1a1a1a; color: #999; }
+      h1 { color: #d23b3b; }
+      .mnt, .ip { color: green; }
+      .limit { text-align: center; padding: 50px 0px; }
+		  .info { background: #333; padding: 20px; border-radius: 8px; }
+		  .try { font-size: 18px; }
+    </style>
     <body>
-      <h2>Akses Terbatas</h2>
-      <p>Coba lagi dalam ${minutesLeft} menit</p>
-      <p>IP Anda: ${clientIP}</p>
-      <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+      <div class="limit">  		
+      <h1>Akses Terbatas</h1>
+      <p class="try">Coba lagi dalam <b class="mnt">${minutesLeft}</b> Menit</strong></p>
+      </div>
+    		<div class="info">
+      <p>IP Anda: <span class="ip">${clientIP}</span</p>
       <p>Sisa request: 0</p>
       <p>Limit: ${MAX_REQUESTS_NON_WHITELIST} request per jam</p>
+    		</div>
     </body>
     </html>
   `);
