@@ -136,15 +136,31 @@ export default async function handler(req, res) {
     const rateLimitResult = checkRateLimit(clientIP, whitelisted);
     
     if (!rateLimitResult.allowed) {
-  return res.status(429).send(
-    `Error: Terlalu banyak request\n\n` +
-    `Limit ${MAX_REQUESTS_NON_WHITELIST} request per jam tercapai.\n` +
-    `Whitelist IP Anda untuk unlimited access.\n\n` +
-    `Detail:\n` +
-    `- IP Anda: ${clientIP}\n` +
-    `- Reset pada: ${rateLimitResult.resetAt}\n` +
-    `- Sisa request: 0`
-  );
+  res.setHeader('Content-Type', 'text/html');
+  return res.status(429).send(`
+    <html>
+    <head>
+      <title>Rate Limit Exceeded</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .error { color: #d63031; background: #ffeaa7; padding: 15px; border-radius: 5px; }
+        .info { background: #dfe6e9; padding: 10px; border-radius: 3px; margin-top: 10px; }
+      </style>
+    </head>
+    <body>
+      <div class="error">
+        <h2>Terlalu Banyak Request</h2>
+        <p>Limit ${MAX_REQUESTS_NON_WHITELIST} request per jam tercapai.</p>
+        <p>Whitelist IP Anda untuk unlimited access.</p>
+      </div>
+      <div class="info">
+        <p><strong>IP Anda:</strong> ${clientIP}</p>
+        <p><strong>Reset pada:</strong> ${rateLimitResult.resetAt}</p>
+        <p><strong>Sisa request:</strong> 0</p>
+      </div>
+    </body>
+    </html>
+  `);
 }
 
     const { url, h, w, q, fit = 'inside', format } = req.query;
