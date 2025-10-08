@@ -1,66 +1,8 @@
 {
-  "functions": {
-    "api/image-proxy.js": {
-      "maxDuration": 30,
-      "memory": 3008
-    },
-    "api/proxy.js": {
-      "maxDuration": 15,
-      "memory": 1024
-    },
-    "api/sip.js": {
-      "maxDuration": 15,
-      "memory": 1024
-    },
-    "api/sip2.js": {
-      "maxDuration": 15,
-      "memory": 1024
-    }
+  "tasks": {
+    "start": "deno run --allow-net main.js"
   },
-  "headers": [
-    {
-      "source": "/api/image-proxy",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" },
-        { "key": "CDN-Cache-Control", "value": "public, max-age=31536000" }
-      ]
-    },
-    {
-      "source": "/api/proxy",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" },
-        { "key": "CDN-Cache-Control", "value": "public, max-age=31536000" }
-      ]
-    },
-    {
-      "source": "/api/siplah",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" },
-        { "key": "CDN-Cache-Control", "value": "public, max-age=31536000" }
-      ]
-    },
-    {
-      "source": "/api/sip2",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" },
-        { "key": "CDN-Cache-Control", "value": "public, max-age=31536000" }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Custom-Proxy", "value": "image-proxy-server" }
-      ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/proxy",
-      "destination": "/api/proxy"
-    },
-    {
-      "source": "/sip",
-      "destination": "/api/sip"
-    }
-  ]
-    }
+  "deploy": {
+    "entrypoint": "main.js"
+  }
+}
