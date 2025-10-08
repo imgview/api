@@ -1,46 +1,37 @@
-// main.js — versi dasar (tanpa sharp dulu)
 Deno.serve(async (req) => {
   const { searchParams } = new URL(req.url);
 
-  const targetUrl = searchParams.get("url");
-  if (!targetUrl) {
-    return new Response("OK — Img proxy ready\nUsage: ?url=<image_url>", {
-      status: 200,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+  const url = searchParams.get("url");
+  if (!url) {
+    return new Response("✅ Server aktif\nGunakan ?url=<alamat gambar>", {
+      headers: { "content-type": "text/plain" },
     });
   }
 
   try {
-    // Validasi URL
-    const parsed = new URL(targetUrl);
-
-    // Ambil gambar dari target URL
-    const res = await fetch(parsed.toString(), {
+    const response = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        "Referer": parsed.origin,
+        "Referer": new URL(url).origin,
         "Accept": "image/*,*/*;q=0.8",
       },
     });
 
-    if (!res.ok) {
+    if (!response.ok) {
       return new Response(
-        `Failed to fetch: ${res.status} ${res.statusText}`,
-        { status: res.status },
+        `Gagal ambil gambar: ${response.status} ${response.statusText}`,
+        { status: 502 }
       );
     }
 
-    const headers = new Headers(res.headers);
+    const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", "*");
     headers.set("Cache-Control", "public, max-age=86400");
 
-    const body = await res.arrayBuffer();
+    const body = await response.arrayBuffer();
     return new Response(body, { status: 200, headers });
-  } catch (err) {
-    return new Response(
-      `Fetch error: ${err.message}`,
-      { status: 500, headers: { "Content-Type": "text/plain" } },
-    );
+  } catch (e) {
+    return new Response(`Error: ${e.message}`, { status: 500 });
   }
 });
