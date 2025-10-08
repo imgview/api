@@ -3,6 +3,7 @@
     "start": "deno run --allow-net main.js"
   },
   "deploy": {
+    "project": "imgview",
     "entrypoint": "main.js"
   }
 }
