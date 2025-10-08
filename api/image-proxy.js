@@ -136,28 +136,23 @@ export default async function handler(req, res) {
     const rateLimitResult = checkRateLimit(clientIP, whitelisted);
     
     if (!rateLimitResult.allowed) {
+  const resetTime = new Date(rateLimitResult.resetAt);
+  const now = new Date();
+  const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
+
   res.setHeader('Content-Type', 'text/html');
   return res.status(429).send(`
     <html>
     <head>
-      <title>Rate Limit Exceeded</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-        .error { color: #d63031; background: #ffeaa7; padding: 15px; border-radius: 5px; }
-        .info { background: #dfe6e9; padding: 10px; border-radius: 3px; margin-top: 10px; }
-      </style>
+      <title>Akses Terbatas</title>
     </head>
     <body>
-      <div class="error">
-        <h2>Terlalu Banyak Request</h2>
-        <p>Limit ${MAX_REQUESTS_NON_WHITELIST} request per jam tercapai.</p>
-        <p>Whitelist IP Anda untuk unlimited access.</p>
-      </div>
-      <div class="info">
-        <p><strong>IP Anda:</strong> ${clientIP}</p>
-        <p><strong>Reset pada:</strong> ${rateLimitResult.resetAt}</p>
-        <p><strong>Sisa request:</strong> 0</p>
-      </div>
+      <h2>Akses Terbatas</h2>
+      <p>Coba lagi dalam ${minutesLeft} menit</p>
+      <p>IP Anda: ${clientIP}</p>
+      <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+      <p>Sisa request: 0</p>
+      <p>Limit: ${MAX_REQUESTS_NON_WHITELIST} request per jam</p>
     </body>
     </html>
   `);
