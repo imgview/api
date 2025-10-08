@@ -152,7 +152,8 @@ if (!rateLimitResult.allowed) {
       h1 { color: #d23b3b; }
       .mnt, .ip { color: green; }
       .limit { text-align: center; padding: 50px 0px; }
-      .info { background: #333; padding: 18px; border-radius: 8px; }
+      .info { background: #333; padding: 5px 18px; border-radius: 8px; max-width: 100% }
+	  .info p { margin-left: 8px; }
 	  .try { font-size: 18px; }
     </style>
     <body>
