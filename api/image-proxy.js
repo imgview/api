@@ -5,37 +5,90 @@ import sharp from 'sharp';
 const FETCH_TIMEOUT = 10000; // 10 seconds
 const MAX_RETRIES = 2;
 
-// Admin configuration
-const ADMIN_TOKENS = (process.env.ADMIN_TOKENS || '').split(',').filter(Boolean);
+// IP Whitelist configuration
+const WHITELISTED_IPS = (process.env.WHITELIST_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
 // Rate limiting (in-memory - reset on deploy)
 const requestCounts = new Map();
-const MAX_REQUESTS_NON_ADMIN = 50;
+const MAX_REQUESTS_NON_WHITELIST = 50;
 
-function isAdmin(req) {
-  const token = req.headers['x-admin-token'] || req.query.admin_token;
-  return token && ADMIN_TOKENS.includes(token);
+function getClientIP(req) {
+  // Get real IP from various headers (Vercel forwards real IP)
+  const forwarded = req.headers['x-forwarded-for'];
+  const realIP = req.headers['x-real-ip'];
+  const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare
+  
+  if (forwarded) {
+    // x-forwarded-for can be comma-separated list
+    return forwarded.split(',')[0].trim();
+  }
+  
+  return realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
 }
 
-function checkRateLimit(identifier, isAdmin) {
-  if (isAdmin) return true;
+function isWhitelisted(ip) {
+  if (WHITELISTED_IPS.length === 0) {
+    return false; // No whitelist = all non-whitelisted
+  }
+  
+  // Check exact match
+  if (WHITELISTED_IPS.includes(ip)) {
+    return true;
+  }
+  
+  // Check CIDR ranges (e.g., 192.168.1.0/24)
+  for (const whitelistedIP of WHITELISTED_IPS) {
+    if (whitelistedIP.includes('/')) {
+      // Simple CIDR check for /24, /16, /8
+      const [network, bits] = whitelistedIP.split('/');
+      const maskLength = parseInt(bits);
+      
+      if (maskLength === 24) {
+        const ipPrefix = ip.split('.').slice(0, 3).join('.');
+        const networkPrefix = network.split('.').slice(0, 3).join('.');
+        if (ipPrefix === networkPrefix) return true;
+      } else if (maskLength === 16) {
+        const ipPrefix = ip.split('.').slice(0, 2).join('.');
+        const networkPrefix = network.split('.').slice(0, 2).join('.');
+        if (ipPrefix === networkPrefix) return true;
+      } else if (maskLength === 8) {
+        const ipPrefix = ip.split('.')[0];
+        const networkPrefix = network.split('.')[0];
+        if (ipPrefix === networkPrefix) return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
+function checkRateLimit(ip, isWhitelisted) {
+  if (isWhitelisted) return { allowed: true, remaining: 'unlimited' };
   
   const now = Date.now();
   const hourAgo = now - 3600000; // 1 hour
   
-  if (!requestCounts.has(identifier)) {
-    requestCounts.set(identifier, []);
+  if (!requestCounts.has(ip)) {
+    requestCounts.set(ip, []);
   }
   
-  const timestamps = requestCounts.get(identifier).filter(t => t > hourAgo);
+  const timestamps = requestCounts.get(ip).filter(t => t > hourAgo);
   
-  if (timestamps.length >= MAX_REQUESTS_NON_ADMIN) {
-    return false;
+  if (timestamps.length >= MAX_REQUESTS_NON_WHITELIST) {
+    return { 
+      allowed: false, 
+      remaining: 0,
+      resetAt: new Date(timestamps[0] + 3600000).toISOString()
+    };
   }
   
   timestamps.push(now);
-  requestCounts.set(identifier, timestamps);
-  return true;
+  requestCounts.set(ip, timestamps);
+  
+  return { 
+    allowed: true, 
+    remaining: MAX_REQUESTS_NON_WHITELIST - timestamps.length 
+  };
 }
 
 async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
@@ -67,7 +120,7 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -75,19 +128,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Check admin status
-    const adminStatus = isAdmin(req);
+    // Get client IP
+    const clientIP = getClientIP(req);
+    const whitelisted = isWhitelisted(clientIP);
     
     // Rate limiting check
-    const identifier = req.headers['x-forwarded-for'] || 
-                      req.connection.remoteAddress || 
-                      'unknown';
+    const rateLimitResult = checkRateLimit(clientIP, whitelisted);
     
-    if (!checkRateLimit(identifier, adminStatus)) {
+    if (!rateLimitResult.allowed) {
       return res.status(429).json({ 
         error: 'Terlalu banyak request',
-        message: `Limit ${MAX_REQUESTS_NON_ADMIN} request per jam untuk non-admin. Gunakan admin token untuk unlimited access.`,
-        remaining: 0
+        message: `Limit ${MAX_REQUESTS_NON_WHITELIST} request per jam tercapai. Whitelist IP Anda untuk unlimited access.`,
+        remaining: 0,
+        resetAt: rateLimitResult.resetAt,
+        yourIP: clientIP
       });
     }
 
@@ -95,7 +149,9 @@ export default async function handler(req, res) {
 
     console.log('Processing request:', { 
       url: url?.substring(0, 100) + '...',
-      isAdmin: adminStatus 
+      clientIP,
+      whitelisted,
+      remaining: rateLimitResult.remaining
     });
 
     if (!url) {
@@ -112,6 +168,7 @@ export default async function handler(req, res) {
       const hostname = imageUrl.hostname;
       if (hostname === 'localhost' || hostname === '127.0.0.1' || 
           hostname.startsWith('192.168.') || hostname.startsWith('10.') ||
+          hostname.startsWith('172.16.') || hostname.startsWith('172.31.') ||
           hostname.endsWith('.local')) {
         return res.status(400).json({ error: 'URL tidak diizinkan' });
       }
@@ -273,9 +330,11 @@ export default async function handler(req, res) {
       res.setHeader('X-Original-Size', originalSize);
       res.setHeader('X-Optimized-Size', optimizedSize);
       res.setHeader('X-Size-Reduction', `${reductionPercent}%`);
+      res.setHeader('X-Client-IP', clientIP);
+      res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
       
-      if (adminStatus) {
-        res.setHeader('X-Admin', 'true');
+      if (whitelisted) {
+        res.setHeader('X-Whitelisted', 'true');
       }
 
       res.status(200).send(imageData);
@@ -302,4 +361,4 @@ export default async function handler(req, res) {
       message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi'
     });
   }
-                                       }
+          }
