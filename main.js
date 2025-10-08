@@ -1,4 +1,3 @@
-// main.js
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 serve(async (req) => {
@@ -6,16 +5,22 @@ serve(async (req) => {
   const target = url.searchParams.get("url");
   const width = parseInt(url.searchParams.get("w") || "400", 10);
 
+  // Jika root path tanpa parameter -> tampilkan info
   if (!target) {
-    return new Response("Parameter ?url= diperlukan", { status: 400 });
+    return new Response(
+      `✅ ImgView aktif!\nGunakan format:\n?url=<gambar>&w=<lebar>\n\nContoh:\n?url=https://kiryuu02.com/wp-content/uploads/2021/04/niwatori-fighter-459997-HAsjbASi.jpg&w=300`,
+      { status: 200, headers: { "Content-Type": "text/plain" } }
+    );
   }
 
-  // Cek rate limit sederhana
+  // Rate limit sederhana
   await new Promise((r) => setTimeout(r, 1000)); // delay 1 detik per request
 
   try {
-    // Gunakan layanan resize eksternal (weserv.nl) sebagai proxy
-    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(target)}&w=${width}&output=webp`;
+    // Gunakan weserv.nl untuk resize
+    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(
+      target
+    )}&w=${width}&output=webp`;
 
     const res = await fetch(proxyUrl);
     if (!res.ok) {
