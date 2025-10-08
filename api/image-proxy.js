@@ -154,9 +154,27 @@ export default async function handler(req, res) {
       remaining: rateLimitResult.remaining
     });
 
-    if (!url) {
-      return res.status(400).json({ 
-        error: 'Parameter URL gambar diperlukan'
+    // Special endpoint to check IP and whitelist status
+    if (!url || url === 'check' || url === 'info' || url === 'status') {
+      return res.status(200).json({
+        success: true,
+        message: 'Image Proxy API - IP Info',
+        yourIP: clientIP,
+        whitelisted: whitelisted,
+        rateLimit: {
+          maxRequests: whitelisted ? 'unlimited' : MAX_REQUESTS_NON_WHITELIST,
+          remaining: rateLimitResult.remaining,
+          resetAt: rateLimitResult.resetAt || null
+        },
+        usage: {
+          endpoint: '/api/image-proxy',
+          requiredParams: ['url'],
+          optionalParams: ['w', 'h', 'q', 'fit', 'format'],
+          example: '/api/image-proxy?url=https://example.com/image.jpg&w=800&q=80&format=webp'
+        },
+        formats: ['webp', 'jpeg', 'png', 'avif'],
+        maxImageSize: '10MB',
+        documentation: 'https://github.com/yourusername/image-proxy'
       });
     }
 
@@ -361,4 +379,4 @@ export default async function handler(req, res) {
       message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi'
     });
   }
-          }
+      }
