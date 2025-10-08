@@ -136,14 +136,16 @@ export default async function handler(req, res) {
     const rateLimitResult = checkRateLimit(clientIP, whitelisted);
     
     if (!rateLimitResult.allowed) {
-      return res.status(429).json({ 
-        error: 'Terlalu banyak request',
-        message: `Limit ${MAX_REQUESTS_NON_WHITELIST} request per jam tercapai. Whitelist IP Anda untuk unlimited access.`,
-        remaining: 0,
-        resetAt: rateLimitResult.resetAt,
-        yourIP: clientIP
-      });
-    }
+  return res.status(429).send(
+    `Error: Terlalu banyak request\n\n` +
+    `Limit ${MAX_REQUESTS_NON_WHITELIST} request per jam tercapai.\n` +
+    `Whitelist IP Anda untuk unlimited access.\n\n` +
+    `Detail:\n` +
+    `- IP Anda: ${clientIP}\n` +
+    `- Reset pada: ${rateLimitResult.resetAt}\n` +
+    `- Sisa request: 0`
+  );
+}
 
     const { url, h, w, q, fit = 'inside', format } = req.query;
 
