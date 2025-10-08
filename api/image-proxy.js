@@ -117,11 +117,10 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
   }
 }
 
-// Function to serve HTML page with dynamic data
+// Function to redirect to HTML page
 function serveHTML(res, data = {}) {
-  // Redirect to /api/index.html with query parameters
   const params = new URLSearchParams(data);
-  res.redirect(302, `/api/index.html?${params.toString()}`);
+  res.redirect(302, `/api?${params.toString()}`);
 }
 
 export default async function handler(req, res) {
@@ -147,7 +146,7 @@ export default async function handler(req, res) {
       const now = new Date();
       const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
 
-      // Serve rate limit page via index.html
+      // Redirect to HTML page for rate limit
       serveHTML(res, {
         type: 'rate-limit',
         clientIP: clientIP,
@@ -168,14 +167,13 @@ export default async function handler(req, res) {
 
     // Special endpoint to check IP and whitelist status
     if (!url || url === 'check' || url === 'info' || url === 'status') {
-      // Serve info page via index.html
+      // Redirect to HTML page for info
       serveHTML(res, {
         type: 'info',
         clientIP: clientIP,
         whitelisted: whitelisted,
-        maxRequests: MAX_REQUESTS_NON_WHITELIST,
         remaining: rateLimitResult.remaining,
-        resetAt: rateLimitResult.resetAt || ''
+        maxRequests: MAX_REQUESTS_NON_WHITELIST
       });
       return;
     }
@@ -381,4 +379,4 @@ export default async function handler(req, res) {
       message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi'
     });
   }
-}
+    }
