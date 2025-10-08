@@ -10,7 +10,7 @@ const WHITELISTED_IPS = (process.env.WHITELIST_IPS || '').split(',').map(ip => i
 
 // Rate limiting (in-memory - reset on deploy)
 const requestCounts = new Map();
-const MAX_REQUESTS_NON_WHITELIST = 50;
+const MAX_REQUESTS_NON_WHITELIST = 1;
 
 function getClientIP(req) {
   // Get real IP from various headers (Vercel forwards real IP)
