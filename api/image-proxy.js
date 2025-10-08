@@ -146,6 +146,7 @@ export default async function handler(req, res) {
         <html>
         <head>
           <title>Akses Terbatas</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
             .error { color: #d63031; background: #ffeaa7; padding: 15px; border-radius: 5px; }
