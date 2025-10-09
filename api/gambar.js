@@ -180,12 +180,17 @@ export default async function handler(req, res) {
 
     // Validate URL parameter
     if (!url) {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.status(400).send(`
-      <pre>
-      Masukkan URL Gambar
-      </pre>
-    `);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(400).send(`
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+      </head>
+      <body>
+        <pre>
+         Masukkan URL Gambar
+        </pre>
+      </body>
+  `);
 }
 
     // Validate and sanitize URL
