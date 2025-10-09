@@ -99,18 +99,18 @@ export default async function handler(req, res) {
       const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
       res.setHeader('Content-Type', 'text/html');
       return res.status(429).send(`
-        <html>
         <head>
           <title>Akses Terbatas</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
         </head>
         <body>
+        <center>
           <h2>⏰ Akses Terbatas</h2>
           <p>⚠️ Coba lagi dalam ${minutesLeft} menit</p>
           <p>IP: ${clientIP}</p>
           <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
         </body>
-        </html>
+        </center>
       `);
     }
 
