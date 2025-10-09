@@ -24,7 +24,7 @@ function getClientIP(req) {
   }
   
   return realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
-} // AKHIR SCOPE: function getClientIP
+}
 
 function isWhitelisted(ip) {
   if (WHITELISTED_IPS.length === 0) {
@@ -60,7 +60,7 @@ function isWhitelisted(ip) {
   }
   
   return false;
-} // AKHIR SCOPE: function isWhitelisted
+}
 
 function checkRateLimit(ip, isWhitelisted) {
   if (isWhitelisted) return { allowed: true, remaining: 'unlimited' };
@@ -89,7 +89,7 @@ function checkRateLimit(ip, isWhitelisted) {
     allowed: true, 
     remaining: MAX_REQUESTS_NON_WHITELIST - timestamps.length 
   };
-} // AKHIR SCOPE: function checkRateLimit
+}
 
 async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
   for (let i = 0; i <= retries; i++) {
@@ -113,9 +113,9 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
       }
       
       await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-    } // AKHIR SCOPE: catch block dalam for loop
-  } // AKHIR SCOPE: for loop
-} // AKHIR SCOPE: function fetchWithTimeoutAndRetry
+    }
+  }
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -125,7 +125,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
-  } // AKHIR SCOPE: if (req.method === 'OPTIONS')
+  }
 
   try {
     // Get client IP
@@ -167,7 +167,7 @@ export default async function handler(req, res) {
         </body>
         </html>
       `);
-    } // AKHIR SCOPE: if (!rateLimitResult.allowed)
+    }
 
     const { url, h, w, q, fit = 'inside', format } = req.query;
 
@@ -178,29 +178,13 @@ export default async function handler(req, res) {
       remaining: rateLimitResult.remaining
     });
 
-    // Special endpoint to check IP and whitelist status
-    if (!url || url === 'check' || url === 'info' || url === 'status') {
-      return res.status(200).json({
-        success: true,
-        message: 'Image Proxy API - IP Info',
-        yourIP: clientIP,
-        whitelisted: whitelisted,
-        rateLimit: {
-          maxRequests: whitelisted ? 'unlimited' : MAX_REQUESTS_NON_WHITELIST,
-          remaining: rateLimitResult.remaining,
-          resetAt: rateLimitResult.resetAt || null
-        },
-        usage: {
-          endpoint: '/api/image-proxy',
-          requiredParams: ['url'],
-          optionalParams: ['w', 'h', 'q', 'fit', 'format'],
-          example: '/api/image-proxy?url=https://example.com/image.jpg&w=800&q=80&format=webp'
-        },
-        formats: ['webp', 'jpeg', 'png', 'avif'],
-        maxImageSize: '10MB',
-        documentation: 'https://github.com/yourusername/image-proxy'
+    // Validate URL parameter
+    if (!url) {
+      return res.status(400).json({ 
+        error: 'Parameter URL diperlukan',
+        usage: '/api/image-proxy?url=https://example.com/image.jpg'
       });
-    } // AKHIR SCOPE: if (!url || url === 'check' ...)
+    }
 
     // Validate and sanitize URL
     let imageUrl;
@@ -213,11 +197,11 @@ export default async function handler(req, res) {
           hostname.startsWith('172.16.') || hostname.startsWith('172.31.') ||
           hostname.endsWith('.local')) {
         return res.status(400).json({ error: 'URL tidak diizinkan' });
-      } // AKHIR SCOPE: if (hostname === 'localhost' ...)
+      }
       
     } catch (error) {
       return res.status(400).json({ error: 'URL tidak valid' });
-    } // AKHIR SCOPE: try-catch untuk URL validation
+    }
 
     // Fetch the original image
     let response;
@@ -237,28 +221,28 @@ export default async function handler(req, res) {
         error: 'Gagal mengambil gambar dari sumber',
         message: 'Timeout atau koneksi terputus'
       });
-    } // AKHIR SCOPE: try-catch untuk fetch
+    }
 
     if (!response.ok) {
       console.error('Upstream response not OK:', response.status);
       return res.status(response.status).json({ 
         error: `Gagal mengambil gambar: ${response.status}` 
       });
-    } // AKHIR SCOPE: if (!response.ok)
+    }
 
     const contentType = response.headers.get('content-type');
     if (!contentType || !contentType.startsWith('image/')) {
       return res.status(400).json({ 
         error: 'URL tidak mengarah ke gambar yang valid' 
       });
-    } // AKHIR SCOPE: if (!contentType ...)
+    }
 
     const contentLength = response.headers.get('content-length');
     if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
       return res.status(413).json({ 
         error: 'Gambar terlalu besar (max 10MB)' 
       });
-    } // AKHIR SCOPE: if (contentLength ...)
+    }
 
     const imageBuffer = await response.arrayBuffer();
     
@@ -266,7 +250,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ 
         error: 'Gambar kosong atau korup' 
       });
-    } // AKHIR SCOPE: if (imageBuffer.byteLength === 0)
+    }
 
     let imageData = Buffer.from(imageBuffer);
     const originalSize = imageData.length;
@@ -318,7 +302,7 @@ export default async function handler(req, res) {
             optimizeScans: true
           });
           outputContentType = 'image/jpeg';
-          break; // AKHIR SCOPE: case 'jpeg'
+          break;
           
         case 'png':
           sharpInstance = sharpInstance.png({ 
@@ -328,7 +312,7 @@ export default async function handler(req, res) {
             effort: 10 // Maximum effort
           });
           outputContentType = 'image/png';
-          break; // AKHIR SCOPE: case 'png'
+          break;
           
         case 'avif':
           sharpInstance = sharpInstance.avif({ 
@@ -336,7 +320,7 @@ export default async function handler(req, res) {
             effort: 6
           });
           outputContentType = 'image/avif';
-          break; // AKHIR SCOPE: case 'avif'
+          break;
           
         case 'webp':
         default:
@@ -349,8 +333,8 @@ export default async function handler(req, res) {
             reductionEffort: 6
           });
           outputContentType = 'image/webp';
-          break; // AKHIR SCOPE: case 'webp'
-      } // AKHIR SCOPE: switch statement
+          break;
+      }
 
       imageData = await sharpInstance.toBuffer();
       
@@ -377,7 +361,7 @@ export default async function handler(req, res) {
       
       if (whitelisted) {
         res.setHeader('X-Whitelisted', 'true');
-      } // AKHIR SCOPE: if (whitelisted)
+      }
 
       res.status(200).send(imageData);
 
@@ -387,7 +371,7 @@ export default async function handler(req, res) {
         error: 'Gagal memproses gambar',
         message: sharpError.message
       });
-    } // AKHIR SCOPE: try-catch untuk image processing
+    }
 
   } catch (error) {
     console.error('Unexpected error:', error);
@@ -396,11 +380,11 @@ export default async function handler(req, res) {
       return res.status(504).json({ 
         error: 'Timeout saat mengambil gambar' 
       });
-    } // AKHIR SCOPE: if (error.name === 'AbortError')
+    }
     
     res.status(500).json({ 
       error: 'Terjadi kesalahan internal',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi'
     });
-  } // AKHIR SCOPE: try-catch utama dalam handler
-} // AKHIR SCOPE: function handler - INI BATAS AKHIR FUNGSI HANDLER
+  }
+                                             }
