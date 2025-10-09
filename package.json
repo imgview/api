@@ -1,7 +1,6 @@
 {
-  "name": "imgview-api",
+  "name": "Image Proxy",
   "version": "1.0.0",
-  "description": "Image proxy API for wsrv.nl bypass",
   "dependencies": {
     "sharp": "^0.32.0"
   },
