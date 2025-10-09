@@ -180,10 +180,13 @@ export default async function handler(req, res) {
 
     // Validate URL parameter
     if (!url) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send(
-      `Masukkan URL Gambar`  );
-    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(400).send(`
+      <pre>
+      Masukkan URL Gambar
+      </pre>
+    `);
+}
 
     // Validate and sanitize URL
     let imageUrl;
