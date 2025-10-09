@@ -186,9 +186,9 @@ export default async function handler(req, res) {
         <meta name="viewport" content="width=device-width, initial-scale=1">
       </head>
       <body>
-        <pre>
+        <h1>
          Masukkan URL Gambar
-        </pre>
+        </h1>
       </body>
   `);
 }
