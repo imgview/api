@@ -75,20 +75,16 @@ export default async function handler(req, res) {
   if (Object.keys(req.query).length === 0) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(200).send(`
-      <!DOCTYPE html>
-      <html>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>Proxy Gambar</title>
         </head>
         <body>
-          <pre>
-⚙️ Masukkan parameter lengkap, misalnya:
-
-/?w=200&q=75&url=https://contoh.com/gambar.jpg
-          </pre>
+          <center>
+<h2>Masukkan parameter, Contoh:<h2>
+/?w=200&q=75&url=
+          </center>
         </body>
-      </html>
     `);
   }
 
@@ -127,7 +123,9 @@ export default async function handler(req, res) {
           <meta name="viewport" content="width=device-width, initial-scale=1">
         </head>
         <body>
-          <h1>Masukkan URL Gambar</h1>
+        <center>
+          <h2>Masukkan URL Gambar</h2>
+        </center>
         </body>
       `);
     }
