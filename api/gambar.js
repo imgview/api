@@ -78,24 +78,28 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Peringatan untuk /api
-  if (req.url === '/api' || req.url === '/api/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(404).send('tidak ada apa apa disini');
-  }
-
-  // Peringatan untuk /api/gambar tanpa parameter
-  if (req.url === '/api/gambar' || req.url === '/api/gambar/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('/?w=300&q=75&url=');
-  }
-
   const { key, url, h, w, q, fit, format, sharp, sharpLevel, text } = req.query;
 
-  // Peringatan untuk url kosong
   if (!url || url.trim() === '') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Masukkan URL Gambar');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(400).send(`
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Proxy Gambar - Masukkan URL</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+        </style>
+      </head>
+      <body>
+        <center>
+          <h2>📸 Masukkan URL Gambar</h2>
+          <p>Parameter <code>url</code> wajib disediakan.</p>
+          <p><strong>Contoh:</strong> <code>?url=https://example.com/image.jpg&w=200</code></p>
+          <hr>
+          <p><small>Jika hanya <code>url</code> disediakan, gambar asli akan dikembalikan tanpa pemrosesan. Gunakan parameter seperti <code>w</code>, <code>h</code>, <code>q</code>, <code>format</code>, <code>sharp</code>, atau <code>text</code> untuk memproses gambar.</small></p>
+        </center>
+      </body>
+    `);
   }
 
   // Jika hanya url disediakan tanpa parameter lain, kembalikan gambar asli
@@ -153,8 +157,26 @@ export default async function handler(req, res) {
   const rateLimitResult = checkRateLimit(identifier, hasValidKey);
 
   if (!rateLimitResult.allowed) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(429).send('Limit request tercapai, coba lagi nanti');
+    const resetTime = new Date(rateLimitResult.resetAt);
+    const now = new Date();
+    const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
+    res.setHeader('Content-Type', 'text/html');
+    return res.status(429).send(`
+      <head>
+        <title>Akses Terbatas</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body>
+        <center>
+          <h2>⏰ Akses Terbatas</h2>
+          <p>⚠️ Anda telah mencapai limit ${MAX_REQUESTS_WITHOUT_KEY} request per jam</p>
+          <p>Coba lagi dalam ${minutesLeft} menit</p>
+          <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+          <hr>
+          <p><small>💡 Gunakan API Key untuk akses unlimited</small></p>
+        </center>
+      </body>
+    `);
   }
 
   // Validasi URL
@@ -184,19 +206,19 @@ export default async function handler(req, res) {
 
   if ((height && (isNaN(height) || height <= 0 || height > 10000)) || 
       (width && (isNaN(width) || width <= 0 || width > 10000))) {
-    return res.status(400).json({ error: 'Parameter h atau w tidak valid' });
+    return res.status(400).json({ error: 'Parameter h atau w tidak valid, harus angka positif dan tidak lebih dari 10000' });
   }
   if (quality && (isNaN(quality) || quality < 1 || quality > 100)) {
-    return res.status(400).json({ error: 'Parameter q tidak valid' });
+    return res.status(400).json({ error: 'Parameter q tidak valid, harus antara 1-100' });
   }
   if (format && !validFormats.includes(format.toLowerCase())) {
-    return res.status(400).json({ error: `Format tidak didukung: ${validFormats.join(', ')}` });
+    return res.status(400).json({ error: `Format tidak didukung. Gunakan: ${validFormats.join(', ')}` });
   }
   if (fit && !validFits.includes(fit.toLowerCase())) {
-    return res.status(400).json({ error: `Fit tidak didukung: ${validFits.join(', ')}` });
+    return res.status(400).json({ error: `Fit tidak didukung. Gunakan: ${validFits.join(', ')}` });
   }
   if (sharp === 'true' && (!sharpLevel || !validSharpLevels.includes(sharpLevel.toLowerCase()))) {
-    return res.status(400).json({ error: 'Parameter sharpLevel wajib: low, medium, high' });
+    return res.status(400).json({ error: 'Parameter sharpLevel wajib disediakan (low, medium, high) jika sharp=true' });
   }
   if (text && text !== 'true' && text !== 'false') {
     return res.status(400).json({ error: 'Parameter text harus true atau false' });
@@ -227,12 +249,12 @@ export default async function handler(req, res) {
       follow: 5
     });
   } catch {
-    return res.status(504).json({ error: 'Gagal mengambil gambar' });
+    return res.status(504).json({ error: 'Gagal mengambil gambar dari sumber', message: 'Timeout atau koneksi terputus' });
   }
 
   if (!response.ok) return res.status(response.status).json({ error: `Gagal mengambil gambar: ${response.status}` });
   const contentType = response.headers.get('content-type');
-  if (!contentType || !contentType.startsWith('image/')) return res.status(400).json({ error: 'Bukan gambar yang valid' });
+  if (!contentType || !contentType.startsWith('image/')) return res.status(400).json({ error: 'URL tidak mengarah ke gambar yang valid' });
   const contentLength = response.headers.get('content-length');
   if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) return res.status(413).json({ error: 'Gambar terlalu besar (max 10MB)' });
 
@@ -240,6 +262,16 @@ export default async function handler(req, res) {
   if (imageBuffer.byteLength === 0) return res.status(400).json({ error: 'Gambar kosong atau korup' });
   let imageData = Buffer.from(imageBuffer);
   const originalSize = imageData.length;
+
+  // Jika tidak ada parameter pemrosesan, kembalikan gambar asli
+  if (!w && !h && !q && !format && !sharp && !fit && !text) {
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', imageData.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
+    res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
+    if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
+    return res.status(200).send(imageData);
+  }
 
   try {
     let sharpInstance = sharp(imageData, { 
@@ -254,7 +286,7 @@ export default async function handler(req, res) {
     // Resize jika w atau h disediakan
     if (w || h) {
       sharpInstance = sharpInstance.resize(width, height, { 
-        fit: fit || 'inside',
+        fit: fit || 'inside', // Gunakan fit dari URL, default ke 'inside' hanya jika resize aktif
         withoutEnlargement: true, 
         kernel: sharp.kernel.mitchell,
         fastShrinkOnLoad: false 
@@ -351,6 +383,6 @@ export default async function handler(req, res) {
     res.status(200).send(imageData);
   } catch (sharpError) {
     if (process.env.NODE_ENV !== 'production') console.error('Sharp error:', sharpError);
-    return res.status(500).json({ error: 'Gagal memproses gambar' });
+    return res.status(500).json({ error: 'Gagal memproses gambar', message: sharpError.message });
   }
-    }
+            }
