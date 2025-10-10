@@ -1,7 +1,7 @@
 import * as sharp from 'sharp';
 
-const FETCH_TIMEOUT = 30000;
-const MAX_RETRIES = 2;
+const FETCH_TIMEOUT = 30000; // 30 detik
+const MAX_RETRIES = 4;
 const API_KEY = process.env.API_KEY || '';
 const MAX_REQUESTS_WITHOUT_KEY = 5;
 const requestCounts = new Map();
@@ -50,12 +50,14 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+      const startTime = Date.now();
       const response = await fetch(url, { ...options, signal: controller.signal });
+      console.log('Fetch duration:', Date.now() - startTime, 'ms');
       clearTimeout(timeoutId);
       return response;
     } catch (error) {
       if (i === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+      await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
     }
   }
 }
@@ -98,41 +100,54 @@ export default async function handler(req, res) {
     return res.status(400).send('Masukkan URL Gambar');
   }
 
-  // Jika hanya url disediakan, kembalikan gambar asli
-  if (Object.keys(req.query).length === 1 || (Object.keys(req.query).length === 2 && key)) {
-    let imageUrl;
-    try {
-      imageUrl = new URL(url);
-      if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(400).send('URL tidak valid');
-      }
-      const hostname = imageUrl.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
-          hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
-          hostname.endsWith('.local')) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(400).send('URL tidak diizinkan');
-      }
-    } catch {
+  // Validasi URL gambar
+  let imageUrl;
+  try {
+    imageUrl = new URL(url);
+    if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.status(400).send('URL tidak valid');
     }
+    const hostname = imageUrl.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
+        hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
+        hostname.endsWith('.local')) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.status(400).send('URL tidak diizinkan');
+    }
+  } catch {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(400).send('URL tidak valid');
+  }
 
+  // Rate limiting hanya untuk URL gambar valid
+  const hasValidKey = validateApiKey(key);
+  const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
+  const rateLimitResult = checkRateLimit(identifier, hasValidKey);
+
+  if (!rateLimitResult.allowed) {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(429).send('Limit request tercapai, coba lagi nanti');
+  }
+
+  // Jika hanya url disediakan, kembalikan gambar asli
+  if (Object.keys(req.query).length === 1 || (Object.keys(req.query).length === 2 && key)) {
     let response;
     try {
       response = await fetchWithTimeoutAndRetry(imageUrl.toString(), {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-          'Referer': ''
+          'Referer': imageUrl.origin,
+          'Accept-Encoding': 'gzip, deflate, br'
         },
         compress: true,
-        follow: 5
+        follow: 10
       });
     } catch {
+      res.setHeader('Location', imageUrl.toString());
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(504).send('Gagal mengambil gambar');
+      return res.status(302).send('Redirecting to original image');
     }
 
     if (!response.ok) {
@@ -151,6 +166,7 @@ export default async function handler(req, res) {
     }
 
     const imageBuffer = await response.arrayBuffer();
+    console.log('Buffer size:', imageBuffer.byteLength);
     if (imageBuffer.byteLength < 1024) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.status(400).send('Gambar tidak bisa diambil');
@@ -160,37 +176,9 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', imageData.length);
     res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
+    res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
+    if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
     return res.status(200).send(imageData);
-  }
-
-  // Validasi dan rate limiting
-  const hasValidKey = validateApiKey(key);
-  const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
-  const rateLimitResult = checkRateLimit(identifier, hasValidKey);
-
-  if (!rateLimitResult.allowed) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(429).send('Limit request tercapai, coba lagi nanti');
-  }
-
-  // Validasi URL
-  let imageUrl;
-  try {
-    imageUrl = new URL(url);
-    if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak valid');
-    }
-    const hostname = imageUrl.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
-        hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
-        hostname.endsWith('.local')) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak diizinkan');
-    }
-  } catch {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('URL tidak valid');
   }
 
   // Validasi parameter
@@ -246,14 +234,16 @@ export default async function handler(req, res) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-        'Referer': ''
+        'Referer': imageUrl.origin,
+        'Accept-Encoding': 'gzip, deflate, br'
       },
       compress: true,
-      follow: 5
+      follow: 10
     });
   } catch {
+    res.setHeader('Location', imageUrl.toString());
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(504).send('Gagal mengambil gambar');
+    return res.status(302).send('Redirecting to original image');
   }
 
   if (!response.ok) {
@@ -272,6 +262,7 @@ export default async function handler(req, res) {
   }
 
   const imageBuffer = await response.arrayBuffer();
+  console.log('Buffer size:', imageBuffer.byteLength);
   if (imageBuffer.byteLength < 1024) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send('Gambar tidak bisa diambil');
@@ -414,4 +405,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-  }
+    }
