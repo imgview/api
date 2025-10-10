@@ -2,7 +2,7 @@
   "name": "Image Proxy",
   "version": "1.0.0",
   "dependencies": {
-    "sharp": "^0.32.0"
+    "sharp": "^0.33.5"
   },
   "engines": {
     "node": "22.x"
