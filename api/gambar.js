@@ -1,6 +1,6 @@
-import * as sharp from 'sharp'; // Ubah ke * as sharp untuk support ESM
+import * as sharp from 'sharp';
 
-const FETCH_TIMEOUT = 10000;
+const FETCH_TIMEOUT = 30000;
 const MAX_RETRIES = 2;
 const API_KEY = process.env.API_KEY || '';
 const MAX_REQUESTS_WITHOUT_KEY = 5;
