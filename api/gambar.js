@@ -2,49 +2,38 @@ import sharp from 'sharp';
 
 const FETCH_TIMEOUT = 10000;
 const MAX_RETRIES = 2;
-const WHITELISTED_IPS = (process.env.WHITELIST_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean);
+const API_KEY = process.env.API_KEY || '';
+const MAX_REQUESTS_WITH_KEY = 1000;
 const requestCounts = new Map();
-const MAX_REQUESTS_NON_WHITELIST = 5;
 
-function getClientIP(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  const realIP = req.headers['x-real-ip'];
-  const cfConnectingIP = req.headers['cf-connecting-ip'];
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+function validateApiKey(key) {
+  if (!API_KEY) return false; // Jika tidak ada API_KEY di env, tolak semua
+  return key === API_KEY;
 }
 
-function isWhitelisted(ip) {
-  if (WHITELISTED_IPS.length === 0) return false;
-  if (WHITELISTED_IPS.includes(ip)) return true;
-  for (const whitelistedIP of WHITELISTED_IPS) {
-    if (whitelistedIP.includes('/')) {
-      const [network, bits] = whitelistedIP.split('/');
-      const maskLength = parseInt(bits);
-      if (maskLength === 24) {
-        if (ip.split('.').slice(0, 3).join('.') === network.split('.').slice(0, 3).join('.')) return true;
-      } else if (maskLength === 16) {
-        if (ip.split('.').slice(0, 2).join('.') === network.split('.').slice(0, 2).join('.')) return true;
-      } else if (maskLength === 8) {
-        if (ip.split('.')[0] === network.split('.')[0]) return true;
-      }
-    }
-  }
-  return false;
-}
-
-function checkRateLimit(ip, isWhitelisted) {
-  if (isWhitelisted) return { allowed: true, remaining: 'unlimited' };
+function checkRateLimit(identifier, hasValidKey) {
   const now = Date.now();
   const hourAgo = now - 3600000;
-  if (!requestCounts.has(ip)) requestCounts.set(ip, []);
-  const timestamps = requestCounts.get(ip).filter(t => t > hourAgo);
-  if (timestamps.length >= MAX_REQUESTS_NON_WHITELIST) {
-    return { allowed: false, remaining: 0, resetAt: new Date(timestamps[0] + 3600000).toISOString() };
+  
+  if (!requestCounts.has(identifier)) requestCounts.set(identifier, []);
+  const timestamps = requestCounts.get(identifier).filter(t => t > hourAgo);
+  
+  const limit = hasValidKey ? MAX_REQUESTS_WITH_KEY : 0; // Tanpa key = 0 request
+  
+  if (timestamps.length >= limit) {
+    return { 
+      allowed: false, 
+      remaining: 0, 
+      resetAt: timestamps.length > 0 ? new Date(timestamps[0] + 3600000).toISOString() : new Date(now + 3600000).toISOString() 
+    };
   }
+  
   timestamps.push(now);
-  requestCounts.set(ip, timestamps);
-  return { allowed: true, remaining: MAX_REQUESTS_NON_WHITELIST - timestamps.length };
+  requestCounts.set(identifier, timestamps);
+  return { 
+    allowed: true, 
+    remaining: limit - timestamps.length 
+  };
 }
 
 async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
@@ -81,17 +70,39 @@ export default async function handler(req, res) {
         </head>
         <body>
           <center>
-<h2>Masukkan parameter, Contoh:<h2>
-/?w=200&q=75&url=
+            <h2>Masukkan parameter, Contoh:</h2>
+            <p>/?key=YOUR_API_KEY&w=200&q=75&url=IMAGE_URL</p>
+            <p><small>⚠️ API Key diperlukan untuk mengakses layanan ini</small></p>
           </center>
         </body>
     `);
   }
 
   try {
-    const clientIP = getClientIP(req);
-    const whitelisted = isWhitelisted(clientIP);
-    const rateLimitResult = checkRateLimit(clientIP, whitelisted);
+    const { key, url, h, w, q, fit = 'inside', format } = req.query;
+
+    // Validasi API Key
+    const hasValidKey = validateApiKey(key);
+    
+    if (!hasValidKey) {
+      res.setHeader('Content-Type', 'text/html');
+      return res.status(401).send(`
+        <head>
+          <title>Akses Ditolak</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body>
+          <center>
+            <h2>🔒 Akses Ditolak</h2>
+            <p>⚠️ API Key tidak valid atau tidak ditemukan</p>
+            <p>Gunakan parameter <code>?key=YOUR_API_KEY</code> di URL</p>
+          </center>
+        </body>
+      `);
+    }
+
+    // Rate limiting berdasarkan key
+    const rateLimitResult = checkRateLimit(key, hasValidKey);
 
     if (!rateLimitResult.allowed) {
       const resetTime = new Date(rateLimitResult.resetAt);
@@ -104,17 +115,14 @@ export default async function handler(req, res) {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
         </head>
         <body>
-        <center>
-          <h2>⏰ Akses Terbatas</h2>
-          <p>⚠️ Coba lagi dalam ${minutesLeft} menit</p>
-          <p>IP: ${clientIP}</p>
-          <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+          <center>
+            <h2>⏰ Akses Terbatas</h2>
+            <p>⚠️ Coba lagi dalam ${minutesLeft} menit</p>
+            <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+          </center>
         </body>
-        </center>
       `);
     }
-
-    const { url, h, w, q, fit = 'inside', format } = req.query;
 
     if (!url) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -123,9 +131,9 @@ export default async function handler(req, res) {
           <meta name="viewport" content="width=device-width, initial-scale=1">
         </head>
         <body>
-        <center>
-          <h2>Masukkan URL Gambar</h2>
-        </center>
+          <center>
+            <h2>Masukkan URL Gambar</h2>
+          </center>
         </body>
       `);
     }
@@ -207,9 +215,7 @@ export default async function handler(req, res) {
       res.setHeader('X-Original-Size', originalSize);
       res.setHeader('X-Optimized-Size', optimizedSize);
       res.setHeader('X-Size-Reduction', `${reductionPercent}%`);
-      res.setHeader('X-Client-IP', clientIP);
       res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
-      if (whitelisted) res.setHeader('X-Whitelisted', 'true');
       res.status(200).send(imageData);
     } catch (sharpError) {
       return res.status(500).json({ error: 'Gagal memproses gambar', message: sharpError.message });
@@ -218,4 +224,4 @@ export default async function handler(req, res) {
     if (error.name === 'AbortError') return res.status(504).json({ error: 'Timeout saat mengambil gambar' });
     res.status(500).json({ error: 'Terjadi kesalahan internal', message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi' });
   }
-        }
+}
