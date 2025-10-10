@@ -95,6 +95,26 @@ export default async function handler(req, res) {
   try {
     const { key, url, h, w, q, fit = 'inside', format, sharp: enableSharpening } = req.query;
 
+    // Jika tidak ada URL atau URL kosong, tampilkan halaman info tanpa rate limit
+    if (!url || url.trim() === '') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(`
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Proxy Gambar - Masukkan URL</title>
+        </head>
+        <body>
+          <center>
+            <h2>📸 Masukkan URL Gambar</h2>
+            <p>Tambahkan URL gambar setelah parameter <code>url=</code></p>
+            <hr>
+            <p><small>Contoh: <code>?w=200&url=https://example.com/image.jpg</code></small></p>
+          </center>
+        </body>
+      `);
+    }
+
+    // Validasi dan rate limiting hanya untuk request yang benar-benar memproses gambar
     const hasValidKey = validateApiKey(key);
     const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
     const rateLimitResult = checkRateLimit(identifier, hasValidKey);
@@ -117,20 +137,6 @@ export default async function handler(req, res) {
             <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
             <hr>
             <p><small>💡 Gunakan API Key untuk akses unlimited</small></p>
-          </center>
-        </body>
-      `);
-    }
-
-    if (!url) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.status(400).send(`
-        <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-        </head>
-        <body>
-          <center>
-            <h2>Masukkan URL Gambar</h2>
           </center>
         </body>
       `);
@@ -277,4 +283,4 @@ export default async function handler(req, res) {
     if (error.name === 'AbortError') return res.status(504).json({ error: 'Timeout saat mengambil gambar' });
     res.status(500).json({ error: 'Terjadi kesalahan internal', message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi' });
   }
-        }
+    }
