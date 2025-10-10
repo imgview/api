@@ -3,28 +3,30 @@ import sharp from 'sharp';
 const FETCH_TIMEOUT = 10000;
 const MAX_RETRIES = 2;
 const API_KEY = process.env.API_KEY || '';
-const MAX_REQUESTS_WITH_KEY = 1000;
+const MAX_REQUESTS_WITHOUT_KEY = 5;
 const requestCounts = new Map();
 
 function validateApiKey(key) {
-  if (!API_KEY) return false; // Jika tidak ada API_KEY di env, tolak semua
+  if (!API_KEY) return false;
   return key === API_KEY;
 }
 
 function checkRateLimit(identifier, hasValidKey) {
+  if (hasValidKey) {
+    return { allowed: true, remaining: 'unlimited' };
+  }
+  
   const now = Date.now();
   const hourAgo = now - 3600000;
   
   if (!requestCounts.has(identifier)) requestCounts.set(identifier, []);
   const timestamps = requestCounts.get(identifier).filter(t => t > hourAgo);
   
-  const limit = hasValidKey ? MAX_REQUESTS_WITH_KEY : 0; // Tanpa key = 0 request
-  
-  if (timestamps.length >= limit) {
+  if (timestamps.length >= MAX_REQUESTS_WITHOUT_KEY) {
     return { 
       allowed: false, 
       remaining: 0, 
-      resetAt: timestamps.length > 0 ? new Date(timestamps[0] + 3600000).toISOString() : new Date(now + 3600000).toISOString() 
+      resetAt: new Date(timestamps[0] + 3600000).toISOString() 
     };
   }
   
@@ -32,8 +34,16 @@ function checkRateLimit(identifier, hasValidKey) {
   requestCounts.set(identifier, timestamps);
   return { 
     allowed: true, 
-    remaining: limit - timestamps.length 
+    remaining: MAX_REQUESTS_WITHOUT_KEY - timestamps.length 
   };
+}
+
+function getClientIP(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const realIP = req.headers['x-real-ip'];
+  const cfConnectingIP = req.headers['cf-connecting-ip'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
 }
 
 async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
@@ -71,38 +81,23 @@ export default async function handler(req, res) {
         <body>
           <center>
             <h2>Masukkan parameter, Contoh:</h2>
+            <p><strong>Dengan API Key (Unlimited):</strong></p>
             <p>/?key=YOUR_API_KEY&w=200&q=75&url=IMAGE_URL</p>
-            <p><small>⚠️ API Key diperlukan untuk mengakses layanan ini</small></p>
+            <p><strong>Tanpa API Key (Max 5 request/jam):</strong></p>
+            <p>/?w=200&q=75&url=IMAGE_URL</p>
+            <hr>
+            <p><small>Parameter tambahan: sharp=true (untuk gambar lebih halus)</small></p>
           </center>
         </body>
     `);
   }
 
   try {
-    const { key, url, h, w, q, fit = 'inside', format } = req.query;
+    const { key, url, h, w, q, fit = 'inside', format, sharp: enableSharpening } = req.query;
 
-    // Validasi API Key
     const hasValidKey = validateApiKey(key);
-    
-    if (!hasValidKey) {
-      res.setHeader('Content-Type', 'text/html');
-      return res.status(401).send(`
-        <head>
-          <title>Akses Ditolak</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        </head>
-        <body>
-          <center>
-            <h2>🔒 Akses Ditolak</h2>
-            <p>⚠️ API Key tidak valid atau tidak ditemukan</p>
-            <p>Gunakan parameter <code>?key=YOUR_API_KEY</code> di URL</p>
-          </center>
-        </body>
-      `);
-    }
-
-    // Rate limiting berdasarkan key
-    const rateLimitResult = checkRateLimit(key, hasValidKey);
+    const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
+    const rateLimitResult = checkRateLimit(identifier, hasValidKey);
 
     if (!rateLimitResult.allowed) {
       const resetTime = new Date(rateLimitResult.resetAt);
@@ -117,8 +112,11 @@ export default async function handler(req, res) {
         <body>
           <center>
             <h2>⏰ Akses Terbatas</h2>
-            <p>⚠️ Coba lagi dalam ${minutesLeft} menit</p>
+            <p>⚠️ Anda telah mencapai limit ${MAX_REQUESTS_WITHOUT_KEY} request per jam</p>
+            <p>Coba lagi dalam ${minutesLeft} menit</p>
             <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+            <hr>
+            <p><small>💡 Gunakan API Key untuk akses unlimited</small></p>
           </center>
         </body>
       `);
@@ -179,35 +177,89 @@ export default async function handler(req, res) {
       const width = w ? parseInt(w) : undefined;
       const quality = q ? parseInt(q) : 75;
       const outputFormat = format || 'webp';
-      let sharpInstance = sharp(imageData, { failOnError: false, limitInputPixels: Math.pow(2, 24) });
+      
+      let sharpInstance = sharp(imageData, { 
+        failOnError: false, 
+        limitInputPixels: Math.pow(2, 24)
+      });
+      
       const metadata = await sharpInstance.metadata();
       const maxWidth = width || Math.min(metadata.width, 1920);
       const maxHeight = height || undefined;
-      sharpInstance = sharpInstance.resize(maxWidth, maxHeight, { fit: fit, withoutEnlargement: true, kernel: sharp.kernel.lanczos3, fastShrinkOnLoad: false });
+      
+      // Resize dengan kernel mitchell untuk hasil lebih smooth
+      sharpInstance = sharpInstance.resize(maxWidth, maxHeight, { 
+        fit: fit, 
+        withoutEnlargement: true, 
+        kernel: sharp.kernel.mitchell, // Lebih smooth dari lanczos3
+        fastShrinkOnLoad: false 
+      });
+
+      // Aplikasi sharpening untuk gambar lebih tajam dan halus
+      if (enableSharpening === 'true' || !enableSharpening) {
+        // Default apply sharpening untuk semua gambar
+        sharpInstance = sharpInstance
+          .median(1) // Hilangkan noise ringan
+          .sharpen({
+            sigma: 0.8,    // Blur radius (lebih rendah = lebih subtle)
+            m1: 0.8,       // Flat areas
+            m2: 0.3,       // Jagged areas
+            x1: 2,
+            y2: 10,
+            y3: 20
+          })
+          .modulate({
+            brightness: 1.01,  // Sedikit lebih cerah
+            saturation: 1.03   // Sedikit lebih saturated
+          });
+      }
+      
       let outputContentType;
       switch (outputFormat.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
-          sharpInstance = sharpInstance.jpeg({ quality: Math.min(quality, 85), mozjpeg: true, chromaSubsampling: '4:2:0', progressive: true, optimizeScans: true });
+          sharpInstance = sharpInstance.jpeg({ 
+            quality: Math.min(quality, 85), 
+            mozjpeg: true, 
+            chromaSubsampling: '4:2:0', 
+            progressive: true, 
+            optimizeScans: true 
+          });
           outputContentType = 'image/jpeg';
           break;
         case 'png':
-          sharpInstance = sharpInstance.png({ quality: Math.min(quality, 90), compressionLevel: 9, palette: true, effort: 10 });
+          sharpInstance = sharpInstance.png({ 
+            quality: Math.min(quality, 90), 
+            compressionLevel: 9, 
+            palette: true, 
+            effort: 10 
+          });
           outputContentType = 'image/png';
           break;
         case 'avif':
-          sharpInstance = sharpInstance.avif({ quality: Math.min(quality, 80), effort: 6 });
+          sharpInstance = sharpInstance.avif({ 
+            quality: Math.min(quality, 80), 
+            effort: 6 
+          });
           outputContentType = 'image/avif';
           break;
         case 'webp':
         default:
-          sharpInstance = sharpInstance.webp({ quality: Math.min(quality, 85), effort: 6, smartSubsample: true, nearLossless: false, reductionEffort: 6 });
+          sharpInstance = sharpInstance.webp({ 
+            quality: Math.min(quality, 85), 
+            effort: 6, 
+            smartSubsample: true, 
+            nearLossless: false, 
+            reductionEffort: 6 
+          });
           outputContentType = 'image/webp';
           break;
       }
+      
       imageData = await sharpInstance.toBuffer();
       const optimizedSize = imageData.length;
       const reductionPercent = ((1 - optimizedSize / originalSize) * 100).toFixed(1);
+      
       res.setHeader('Content-Type', outputContentType);
       res.setHeader('Content-Length', imageData.length);
       res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
@@ -216,6 +268,7 @@ export default async function handler(req, res) {
       res.setHeader('X-Optimized-Size', optimizedSize);
       res.setHeader('X-Size-Reduction', `${reductionPercent}%`);
       res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
+      if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
       res.status(200).send(imageData);
     } catch (sharpError) {
       return res.status(500).json({ error: 'Gagal memproses gambar', message: sharpError.message });
@@ -224,4 +277,4 @@ export default async function handler(req, res) {
     if (error.name === 'AbortError') return res.status(504).json({ error: 'Timeout saat mengambil gambar' });
     res.status(500).json({ error: 'Terjadi kesalahan internal', message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi' });
   }
-}
+        }
