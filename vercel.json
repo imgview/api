@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "api/gambar.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "builds": [
+    {
+      "src": "api/gambar.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
