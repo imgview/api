@@ -12,6 +12,7 @@ function validateApiKey(key) {
 }
 
 function checkRateLimit(identifier, hasValidKey) {
+  console.log('checkRateLimit:', { identifier, hasValidKey, requests: requestCounts.get(identifier)?.length || 0 }); // Debug
   if (hasValidKey) {
     return { allowed: true, remaining: 'unlimited' };
   }
@@ -23,6 +24,7 @@ function checkRateLimit(identifier, hasValidKey) {
   const timestamps = requestCounts.get(identifier).filter(t => t > hourAgo);
   
   if (timestamps.length >= MAX_REQUESTS_WITHOUT_KEY) {
+    console.log('Rate limit exceeded for', identifier); // Debug
     return { 
       allowed: false, 
       remaining: 0, 
@@ -38,13 +40,6 @@ function checkRateLimit(identifier, hasValidKey) {
   };
 }
 
-function getClientIP(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  const realIP = req.headers['x-real-ip'];
-  const cfConnectingIP = req.headers['cf-connecting-ip'];
-  return forwarded ? forwarded.split(',')[0].trim() : realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
-}
-
 async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -56,6 +51,7 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
       clearTimeout(timeoutId);
       return response;
     } catch (error) {
+      console.error('Fetch attempt', i + 1, 'failed:', error.message);
       if (i === retries) throw error;
       await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
     }
@@ -80,14 +76,12 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Peringatan simpel untuk /api
-  if (req.url === '/api' || req.url === '/api/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(404).send('tidak ada apa apa disini');
-  }
+  // Normalisasi req.url
+  const normalizedUrl = req.url.split('?')[0].replace(/\/$/, '');
+  console.log('Normalized URL:', normalizedUrl); // Debug
 
   // Peringatan simpel untuk /api/gambar
-  if (req.url === '/api/gambar' || req.url === '/api/gambar/') {
+  if (normalizedUrl === '/api/gambar') {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send('/?w=300&q=75&url=');
   }
@@ -122,7 +116,7 @@ export default async function handler(req, res) {
 
   // Rate limiting hanya untuk URL gambar valid
   const hasValidKey = validateApiKey(key);
-  const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
+  const identifier = hasValidKey ? `key:${key}` : 'no-key'; // Ganti IP dengan 'no-key'
   const rateLimitResult = checkRateLimit(identifier, hasValidKey);
 
   if (!rateLimitResult.allowed) {
@@ -405,4 +399,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-    }
+        }
