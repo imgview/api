@@ -5,9 +5,9 @@ const MAX_RETRIES = 2;
 const API_KEY = process.env.API_KEY || '';
 const MAX_REQUESTS_WITHOUT_KEY = 5;
 const requestCounts = new Map();
+const cache = new Map(); // Cache sederhana untuk menyimpan gambar yang sudah diproses
 
 function validateApiKey(key) {
-  if (!API_KEY) return false;
   return key === API_KEY;
 }
 
@@ -42,8 +42,7 @@ function getClientIP(req) {
   const forwarded = req.headers['x-forwarded-for'];
   const realIP = req.headers['x-real-ip'];
   const cfConnectingIP = req.headers['cf-connecting-ip'];
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+  return forwarded ? forwarded.split(',')[0].trim() : realIP || cfConnectingIP || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
 }
 
 async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES) {
@@ -61,60 +60,103 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
   }
 }
 
+// Bersihkan requestCounts setiap jam
+setInterval(() => {
+  const now = Date.now();
+  const hourAgo = now - 3600000;
+  for (const [key, timestamps] of requestCounts) {
+    requestCounts.set(key, timestamps.filter(t => t > hourAgo));
+    if (requestCounts.get(key).length === 0) requestCounts.delete(key);
+  }
+}, 3600000);
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
   if (Object.keys(req.query).length === 0) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(200).send(`
-        <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>Proxy Gambar</title>
-        </head>
-        <body>
-          <center>
-            <h2>Masukkan parameter, Contoh:</h2>
-            <p><strong>Dengan API Key (Unlimited):</strong></p>
-            <p>/?key=YOUR_API_KEY&w=200&q=75&url=IMAGE_URL</p>
-            <p><strong>Tanpa API Key (Max 5 request/jam):</strong></p>
-            <p>/?w=200&q=75&url=IMAGE_URL</p>
-            <hr>
-            <p><small>Parameter tambahan: sharp=true (untuk gambar lebih halus)</small></p>
-          </center>
-        </body>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Proxy Gambar</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+          input, select, button { margin: 5px; padding: 8px; }
+          button { background-color: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; }
+          button:hover { background-color: #0056b3; }
+        </style>
+      </head>
+      <body>
+        <center>
+          <h2>📸 Proxy Gambar</h2>
+          <p>Masukkan parameter atau gunakan form berikut untuk memproses gambar:</p>
+          <form action="/" method="GET">
+            <label>URL Gambar:</label><br>
+            <input type="text" name="url" placeholder="https://example.com/image.jpg" required style="width: 300px;"><br>
+            <label>Lebar (w):</label><br>
+            <input type="number" name="w" placeholder="200" min="1" max="10000"><br>
+            <label>Tinggi (h):</label><br>
+            <input type="number" name="h" placeholder="200" min="1" max="10000"><br>
+            <label>Kualitas (q):</label><br>
+            <input type="number" name="q" placeholder="85" min="1" max="100"><br>
+            <label>Format:</label><br>
+            <select name="format">
+              <option value="webp" selected>WebP (default)</option>
+              <option value="jpeg">JPEG</option>
+              <option value="png">PNG</option>
+              <option value="avif">AVIF</option>
+            </select><br>
+            <label><input type="checkbox" name="sharp" value="true" checked> Aktifkan Sharpening (default: aktif)</label><br>
+            <label>Intensitas Sharpening:</label><br>
+            <select name="sharpLevel">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium (default)</option>
+              <option value="high">High</option>
+            </select><br>
+            <button type="submit">Proses Gambar</button>
+          </form>
+          <hr>
+          <p><strong>Contoh URL:</strong></p>
+          <p>Dengan API Key: <code>/?key=YOUR_API_KEY&w=200&q=85&url=IMAGE_URL</code></p>
+          <p>Tanpa API Key (Max ${MAX_REQUESTS_WITHOUT_KEY} request/jam): <code>/?w=200&q=85&url=IMAGE_URL</code></p>
+          <p><small>Catatan: Sharpening aktif secara default untuk hasil lebih halus. Gunakan <code>sharp=false</code> untuk menonaktifkan.</small></p>
+        </center>
+      </body>
     `);
   }
 
   try {
-    const { key, url, h, w, q, fit = 'inside', format, sharp: enableSharpening } = req.query;
+    const { key, url, h, w, q, fit = 'inside', format = 'webp', sharp: enableSharpening = 'true', sharpLevel = 'medium' } = req.query;
 
-    // Jika tidak ada URL atau URL kosong, tampilkan halaman info tanpa rate limit
     if (!url || url.trim() === '') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(200).send(`
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>Proxy Gambar - Masukkan URL</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+          </style>
         </head>
         <body>
           <center>
             <h2>📸 Masukkan URL Gambar</h2>
             <p>Tambahkan URL gambar setelah parameter <code>url=</code></p>
+            <p><strong>Contoh:</strong> <code>?w=200&q=85&url=https://example.com/image.jpg</code></p>
             <hr>
-            <p><small>Contoh: <code>?w=200&url=https://example.com/image.jpg</code></small></p>
+            <p><small>Sharpening aktif secara default untuk hasil lebih halus. Gunakan <code>sharp=false</code> untuk menonaktifkan.</small></p>
           </center>
         </body>
       `);
     }
 
-    // Validasi dan rate limiting hanya untuk request yang benar-benar memproses gambar
+    // Validasi dan rate limiting
     const hasValidKey = validateApiKey(key);
     const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
     const rateLimitResult = checkRateLimit(identifier, hasValidKey);
@@ -142,17 +184,36 @@ export default async function handler(req, res) {
       `);
     }
 
+    // Validasi URL
     let imageUrl;
     try {
       imageUrl = new URL(url);
+      if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
+        return res.status(400).json({ error: 'Hanya protokol http atau https yang diizinkan' });
+      }
       const hostname = imageUrl.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || hostname.endsWith('.local')) {
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
+          hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
+          hostname.endsWith('.local')) {
         return res.status(400).json({ error: 'URL tidak diizinkan' });
       }
     } catch {
       return res.status(400).json({ error: 'URL tidak valid' });
     }
 
+    // Cek cache
+    const cacheKey = `${url}-${w}-${h}-${q}-${format}-${enableSharpening}-${sharpLevel}`;
+    if (cache.has(cacheKey)) {
+      const cachedImage = cache.get(cacheKey);
+      res.setHeader('Content-Type', cachedImage.contentType);
+      res.setHeader('Content-Length', cachedImage.data.length);
+      res.setHeader('X-Cache', 'HIT');
+      res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
+      if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
+      return res.status(200).send(cachedImage.data);
+    }
+
+    // Fetch gambar
     let response;
     try {
       response = await fetchWithTimeoutAndRetry(imageUrl.toString(), {
@@ -173,17 +234,30 @@ export default async function handler(req, res) {
     if (!contentType || !contentType.startsWith('image/')) return res.status(400).json({ error: 'URL tidak mengarah ke gambar yang valid' });
     const contentLength = response.headers.get('content-length');
     if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) return res.status(413).json({ error: 'Gambar terlalu besar (max 10MB)' });
+
     const imageBuffer = await response.arrayBuffer();
     if (imageBuffer.byteLength === 0) return res.status(400).json({ error: 'Gambar kosong atau korup' });
     let imageData = Buffer.from(imageBuffer);
     const originalSize = imageData.length;
 
     try {
+      // Validasi parameter
+      const validFormats = ['webp', 'jpeg', 'jpg', 'png', 'avif'];
       const height = h ? parseInt(h) : undefined;
       const width = w ? parseInt(w) : undefined;
-      const quality = q ? parseInt(q) : 75;
-      const outputFormat = format || 'webp';
-      
+      const quality = q ? parseInt(q) : 85; // Default kualitas tinggi untuk hasil terbaik
+
+      if ((height && (isNaN(height) || height <= 0 || height > 10000)) || 
+          (width && (isNaN(width) || width <= 0 || width > 10000))) {
+        return res.status(400).json({ error: 'Parameter h atau w tidak valid, harus angka positif dan tidak lebih dari 10000' });
+      }
+      if (quality && (isNaN(quality) || quality < 1 || quality > 100)) {
+        return res.status(400).json({ error: 'Parameter q tidak valid, harus antara 1-100' });
+      }
+      if (!validFormats.includes(format.toLowerCase())) {
+        return res.status(400).json({ error: `Format tidak didukung. Gunakan: ${validFormats.join(', ')}` });
+      }
+
       let sharpInstance = sharp(imageData, { 
         failOnError: false, 
         limitInputPixels: Math.pow(2, 24)
@@ -192,36 +266,53 @@ export default async function handler(req, res) {
       const metadata = await sharpInstance.metadata();
       const maxWidth = width || Math.min(metadata.width, 1920);
       const maxHeight = height || undefined;
-      
-      // Resize dengan kernel mitchell untuk hasil lebih smooth
+
+      // Lewati resize untuk gambar kecil jika tidak ada parameter w/h
+      if (metadata.width <= 100 && metadata.height <= 100 && !width && !height) {
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', imageData.length);
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
+        res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
+        if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
+        return res.status(200).send(imageData);
+      }
+
+      // Resize dengan kernel mitchell untuk hasil lebih halus
       sharpInstance = sharpInstance.resize(maxWidth, maxHeight, { 
         fit: fit, 
         withoutEnlargement: true, 
-        kernel: sharp.kernel.mitchell, // Lebih smooth dari lanczos3
+        kernel: sharp.kernel.mitchell,
         fastShrinkOnLoad: false 
       });
 
-      // Aplikasi sharpening untuk gambar lebih tajam dan halus
-      if (enableSharpening === 'true' || !enableSharpening) {
-        // Default apply sharpening untuk semua gambar
+      // Sharpening (default: aktif)
+      if (enableSharpening !== 'false') {
+        let sharpenParams;
+        const isSmallImage = metadata.width < 300 || metadata.height < 300;
+        
+        switch (sharpLevel.toLowerCase()) {
+          case 'low':
+            sharpenParams = { sigma: isSmallImage ? 0.3 : 0.5, m1: 0.5, m2: 0.2, x1: 1, y2: 5, y3: 10 };
+            break;
+          case 'high':
+            sharpenParams = { sigma: isSmallImage ? 0.8 : 1.2, m1: 1.0, m2: 0.5, x1: 3, y2: 15, y3: 30 };
+            break;
+          case 'medium':
+          default:
+            sharpenParams = { sigma: isSmallImage ? 0.5 : 0.8, m1: 0.8, m2: 0.3, x1: 2, y2: 10, y3: 20 };
+        }
+
         sharpInstance = sharpInstance
-          .median(1) // Hilangkan noise ringan
-          .sharpen({
-            sigma: 0.8,    // Blur radius (lebih rendah = lebih subtle)
-            m1: 0.8,       // Flat areas
-            m2: 0.3,       // Jagged areas
-            x1: 2,
-            y2: 10,
-            y3: 20
-          })
+          .median(isSmallImage ? 1 : 2) // Kurangi noise lebih agresif untuk gambar besar
+          .sharpen(sharpenParams)
           .modulate({
-            brightness: 1.01,  // Sedikit lebih cerah
-            saturation: 1.03   // Sedikit lebih saturated
+            brightness: isSmallImage ? 1.0 : 1.01, // Kurangi brightness untuk gambar kecil
+            saturation: isSmallImage ? 1.0 : 1.03
           });
       }
       
       let outputContentType;
-      switch (outputFormat.toLowerCase()) {
+      switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
           sharpInstance = sharpInstance.jpeg({ 
@@ -266,6 +357,9 @@ export default async function handler(req, res) {
       const optimizedSize = imageData.length;
       const reductionPercent = ((1 - optimizedSize / originalSize) * 100).toFixed(1);
       
+      // Simpan ke cache
+      cache.set(cacheKey, { data: imageData, contentType: outputContentType });
+
       res.setHeader('Content-Type', outputContentType);
       res.setHeader('Content-Length', imageData.length);
       res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
@@ -277,10 +371,12 @@ export default async function handler(req, res) {
       if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
       res.status(200).send(imageData);
     } catch (sharpError) {
+      if (process.env.NODE_ENV !== 'production') console.error('Sharp error:', sharpError);
       return res.status(500).json({ error: 'Gagal memproses gambar', message: sharpError.message });
     }
   } catch (error) {
     if (error.name === 'AbortError') return res.status(504).json({ error: 'Timeout saat mengambil gambar' });
-    res.status(500).json({ error: 'Terjadi kesalahan internal', message: process.env.NODE_ENV === 'development' ? error.message : 'Silakan coba lagi' });
+    if (process.env.NODE_ENV !== 'production') console.error('General error:', error);
+    return res.status(500).json({ error: 'Terjadi kesalahan internal', message: 'Silakan coba lagi' });
   }
-    }
+        }
