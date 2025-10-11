@@ -3,7 +3,7 @@ import * as sharp from 'sharp';
 const FETCH_TIMEOUT = 30000;
 const MAX_RETRIES = 2;
 const API_KEY = process.env.API_KEY || '';
-const MAX_REQUESTS_WITHOUT_KEY = 5;
+const MAX_REQUESTS_WITHOUT_KEY = 10;
 const requestCounts = new Map();
 const cache = new Map();
 
