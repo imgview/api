@@ -1,56 +1,42 @@
-import sharp from 'sharp';
+// pages/api/image-proxy/index.js
+const sharp = require('sharp');
 
-export const config = {
-  runtime: 'edge',
-};
+module.exports = async (req, res) => {
+  const { url, w, q } = req.query;
 
-export default async function handler(req) {
-  const { searchParams } = new URL(req.url);
-  const imageUrl = searchParams.get('url');
-  const width = parseInt(searchParams.get('w') || '0');
-  const quality = parseInt(searchParams.get('q') || '80');
-
-  if (!imageUrl) {
-    return new Response('masukkan parameter lengkap misalnya /?w=200&q=75&url=', {
-      status: 400,
-      headers: { 'Content-Type': 'text/plain' }
-    });
+  if (!url) {
+    res.status(400).send('Parameter url dibutuhkan. Contoh: /api/image-proxy/?url=https://example.com/img.jpg&w=400&q=80');
+    return;
   }
 
+  const width = parseInt(w || '0', 10);
+  const quality = Math.min(100, Math.max(10, parseInt(q || '80', 10)));
+
   try {
-    const response = await fetch(imageUrl);
+    const response = await fetch(url);
     if (!response.ok) {
-      return new Response(`Gagal mengambil gambar (${response.status})`, {
-        status: response.status,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      res.status(response.status).send('Gagal mengambil gambar dari sumber');
+      return;
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
     let image = sharp(buffer);
 
-    if (width > 0) image = image.resize(width);
+    if (width > 0) image = image.resize({ width, withoutEnlargement: true });
 
-    // sedikit halus tanpa kabur
+    // sedikit sharpen + noise reduction
     image = image
       .sharpen(0.5)
       .median(1)
       .jpeg({ quality, mozjpeg: true });
 
-    const output = await image.toBuffer();
+    const outputBuffer = await image.toBuffer();
 
-    return new Response(output, {
-      headers: {
-        'Content-Type': 'image/jpeg',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        'Access-Control-Allow-Origin': '*'
-      }
-    });
-
-  } catch (e) {
-    return new Response('Terjadi kesalahan: ' + e.message, {
-      status: 500,
-      headers: { 'Content-Type': 'text/plain' }
-    });
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(outputBuffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Terjadi kesalahan saat memproses gambar');
   }
- }
+};
