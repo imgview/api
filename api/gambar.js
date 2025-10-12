@@ -301,8 +301,8 @@ export default async function handler(req, res) {
     let outputContentType = contentType;
     
     // Quality optimal seperti weserv.nl - balance antara size dan clarity
-    const baseQuality = quality || (isComicImage ? 90 : 80);
-    const effectiveQuality = Math.min(Math.max(baseQuality, 80), 90);
+    const baseQuality = quality || (isComicImage ? 100 : 100);
+    const effectiveQuality = Math.min(Math.max(baseQuality, 100), 100);
 
     switch (effectiveFormat) {
       case 'jpeg':
@@ -372,4 +372,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-}
+    }
