@@ -266,12 +266,12 @@ export default async function handler(req, res) {
 
     // Auto-sharpen untuk semua gambar yang diproses (selalu aktif)
     sharpInstance = sharpInstance.sharpen({
-      sigma: 1.2,
-      m1: 1.5,
-      m2: 0.4,
-      x1: 3,
-      y2: 12,
-      y3: 25
+      sigma: 1.0,
+      m1: 1.2,
+      m2: 0.3,
+      x1: 2,
+      y2: 10,
+      y3: 20
     });
 
     let outputContentType = contentType;
@@ -340,4 +340,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-      }
+}
