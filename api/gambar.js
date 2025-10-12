@@ -1,4 +1,4 @@
-himport * as sharp from 'sharp';
+import * as sharp from 'sharp';
 
 const FETCH_TIMEOUT = 30000;
 const MAX_RETRIES = 2;
@@ -374,4 +374,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-    }
+}
