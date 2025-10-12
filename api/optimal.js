@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
   }
 
   const width = parseInt(w || '0', 10);
-  const quality = Math.min(100, Math.max(10, parseInt(q || '90', 10))); // default 90
+  const quality = Math.min(100, Math.max(10, parseInt(q || '100', 10))); // default 90
 
   try {
     const response = await fetch(url);
