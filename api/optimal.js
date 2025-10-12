@@ -22,6 +22,7 @@ module.exports = async (req, res) => {
     const buffer = Buffer.from(await response.arrayBuffer());
     let image = sharp(buffer);
 
+    // Resize hanya pakai width, height otomatis sesuai aspect ratio
     if (width > 0) image = image.resize({ width, withoutEnlargement: true });
 
     // sedikit sharpen + noise reduction
