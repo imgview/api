@@ -301,8 +301,8 @@ export default async function handler(req, res) {
     let outputContentType = contentType;
     
     // Quality optimal seperti weserv.nl - balance antara size dan clarity
-    const baseQuality = quality || (isComicImage ? 92 : 85);
-    const effectiveQuality = Math.min(Math.max(baseQuality, 80), 95);
+    const baseQuality = quality || (isComicImage ? 90 : 80);
+    const effectiveQuality = Math.min(Math.max(baseQuality, 80), 90);
 
     switch (effectiveFormat) {
       case 'jpeg':
