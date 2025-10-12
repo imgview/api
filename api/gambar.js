@@ -259,16 +259,16 @@ export default async function handler(req, res) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
-        kernel: sharp.kernel.lanczos2,  // Lebih halus dari lanczos3
-        fastShrinkOnLoad: true  // Optimasi resize
+        kernel: sharp.kernel.lanczos3,  // Kembali ke lanczos3 untuk ketajaman
+        fastShrinkOnLoad: true
       });
     }
 
-    // Sharpen ringan untuk mempertahankan detail tanpa bikin kasar
+    // Sharpen seimbang - tajam tapi halus
     sharpInstance = sharpInstance.sharpen({
-      sigma: 0.5,   // Lebih lembut
-      m1: 0.5,      // Tidak terlalu agresif
-      m2: 0.2,
+      sigma: 0.8,
+      m1: 0.8,
+      m2: 0.3,
       x1: 2,
       y2: 10,
       y3: 20
@@ -276,7 +276,6 @@ export default async function handler(req, res) {
 
     let outputContentType = contentType;
     if (format) {
-      // Quality lebih tinggi untuk hasil lebih halus
       const effectiveQuality = quality ? Math.max(quality, 75) : 82;
       switch (format.toLowerCase()) {
         case 'jpeg':
@@ -284,38 +283,32 @@ export default async function handler(req, res) {
           sharpInstance = sharpInstance.jpeg({ 
             quality: effectiveQuality, 
             mozjpeg: true, 
-            chromaSubsampling: '4:2:0',  // Standar untuk foto
+            chromaSubsampling: '4:2:0',
             progressive: true, 
-            optimizeScans: true,
-            trellisQuantisation: true,  // Kualitas lebih baik
-            overshootDeringing: true     // Kurangi artifact
+            optimizeScans: true
           });
           outputContentType = 'image/jpeg';
           break;
         case 'png':
           sharpInstance = sharpInstance.png({ 
             quality: effectiveQuality, 
-            compressionLevel: 6,  // Lebih cepat, tetap bagus
-            palette: false,       // Full color
-            effort: 7 
+            compressionLevel: 6,
+            effort: 4
           });
           outputContentType = 'image/png';
           break;
         case 'avif':
           sharpInstance = sharpInstance.avif({ 
             quality: effectiveQuality, 
-            effort: 4,
-            chromaSubsampling: '4:2:0'
+            effort: 4
           });
           outputContentType = 'image/avif';
           break;
         case 'webp':
           sharpInstance = sharpInstance.webp({ 
             quality: effectiveQuality, 
-            effort: 4,  // Balance speed vs quality
-            smartSubsample: true,
-            nearLossless: false, 
-            reductionEffort: 4
+            effort: 4,
+            smartSubsample: true
           });
           outputContentType = 'image/webp';
           break;
@@ -343,4 +336,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-          }
+        }
