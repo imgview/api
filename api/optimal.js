@@ -1,18 +1,22 @@
-export default async function handler(req, res) {
-  const { url } = req.query;
+export const config = {
+  runtime: 'edge',
+};
+
+export default async function handler(req) {
+  const { searchParams } = new URL(req.url);
+  const url = searchParams.get('url');
 
   if (!url) {
-    return res.status(400).json({ error: 'URL parameter is required' });
+    return new Response(JSON.stringify({ error: 'URL parameter is required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
   try {
     const imageUrl = decodeURIComponent(url);
     
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 35000);
-
     const response = await fetch(imageUrl, {
-      signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
@@ -26,22 +30,30 @@ export default async function handler(req, res) {
       }
     });
 
-    clearTimeout(timeout);
-
     if (!response.ok) {
-      return res.status(response.status).json({ error: 'Failed to fetch image' });
+      return new Response(JSON.stringify({ error: 'Failed to fetch image' }), {
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    const contentType = response.headers.get('content-type');
-    const buffer = await response.arrayBuffer();
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
 
-    res.setHeader('Content-Type', contentType || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
-    
-    res.send(Buffer.from(buffer));
-  } catch (error) {
-    res.status(500).json({ error: 'Error fetching image', details: error.message });
-  }
+    return new Response(response.body, {
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, s-maxage=31536000, max-age=31536000, immutable',
+        'CDN-Cache-Control': 'public, s-maxage=31536000, immutable',
+        'Vercel-CDN-Cache-Control': 'public, s-maxage=31536000, immutable',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'X-Content-Type-Options': 'nosniff'
       }
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Error fetching image', details: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
