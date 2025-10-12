@@ -78,42 +78,22 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Peringatan simpel untuk /api
-  if (req.url === '/api' || req.url === '/api/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(404).send('tidak ada apa apa disini');
-  }
+  const { key, url, h, w, q, fit, format, text } = req.query;
 
-  // Peringatan simpel untuk /api/gambar
-  if (req.url === '/api/gambar' || req.url === '/api/gambar/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('/?w=300&q=75&url=');
-  }
-
-  const { key, url, h, w, q, fit, format, sharp: sharpParam, sharpLevel, text } = req.query;
-
-  // Peringatan simpel untuk URL kosong
   if (!url || url.trim() === '') {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send('Masukkan URL Gambar');
   }
 
-  // Jika hanya url disediakan, kembalikan gambar asli
-  if (Object.keys(req.query).length === 1 || (Object.keys(req.query).length === 2 && key)) {
+  // Hitung jumlah parameter (tanpa key dan url)
+  const paramKeys = Object.keys(req.query).filter(k => k !== 'key' && k !== 'url');
+  const hasProcessingParams = paramKeys.length > 0;
+
+  // Jika tidak ada parameter pemrosesan sama sekali, kembalikan gambar asli
+  if (!hasProcessingParams) {
     let imageUrl;
     try {
       imageUrl = new URL(url);
-      if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(400).send('URL tidak valid');
-      }
-      const hostname = imageUrl.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
-          hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
-          hostname.endsWith('.local')) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(400).send('URL tidak diizinkan');
-      }
     } catch {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.status(400).send('URL tidak valid');
@@ -144,11 +124,6 @@ export default async function handler(req, res) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.status(400).send('Bukan gambar valid');
     }
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(413).send('Gambar terlalu besar');
-    }
 
     const imageBuffer = await response.arrayBuffer();
     if (imageBuffer.byteLength < 1024) {
@@ -177,17 +152,6 @@ export default async function handler(req, res) {
   let imageUrl;
   try {
     imageUrl = new URL(url);
-    if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak valid');
-    }
-    const hostname = imageUrl.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
-        hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
-        hostname.endsWith('.local')) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak diizinkan');
-    }
   } catch {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send('URL tidak valid');
@@ -198,7 +162,6 @@ export default async function handler(req, res) {
   const width = w ? parseInt(w) : undefined;
   const quality = q ? parseInt(q) : undefined;
   const validFormats = ['webp', 'jpeg', 'jpg', 'png', 'avif'];
-  const validSharpLevels = ['low', 'medium', 'high'];
   const validFits = ['contain', 'cover', 'fill', 'inside', 'outside'];
 
   if ((height && (isNaN(height) || height <= 0 || height > 10000)) || 
@@ -218,17 +181,13 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send(`Fit tidak didukung: ${validFits.join(', ')}`);
   }
-  if (sharpParam === 'true' && (!sharpLevel || !validSharpLevels.includes(sharpLevel.toLowerCase()))) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Parameter sharpLevel wajib: low, medium, high');
-  }
   if (text && text !== 'true' && text !== 'false') {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send('Parameter text harus true atau false');
   }
 
   // Cek cache
-  const cacheKey = `${url}-${w || ''}-${h || ''}-${q || ''}-${format || ''}-${fit || ''}-${sharpParam || ''}-${sharpLevel || ''}-${text || ''}`;
+  const cacheKey = `${url}-${w || ''}-${h || ''}-${q || ''}-${format || ''}-${fit || ''}-${text || ''}`;
   if (cache.has(cacheKey)) {
     const cachedImage = cache.get(cacheKey);
     res.setHeader('Content-Type', cachedImage.contentType);
@@ -265,11 +224,6 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(400).send('Bukan gambar valid');
   }
-  const contentLength = response.headers.get('content-length');
-  if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(413).send('Gambar terlalu besar');
-  }
 
   const imageBuffer = await response.arrayBuffer();
   if (imageBuffer.byteLength < 1024) {
@@ -278,16 +232,6 @@ export default async function handler(req, res) {
   }
   let imageData = Buffer.from(imageBuffer);
   const originalSize = imageData.length;
-
-  // Jika tidak ada parameter pemrosesan, kembalikan gambar asli
-  if (!w && !h && !q && !format && !sharpParam && !fit && !text) {
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', imageData.length);
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
-    res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
-    if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
-    return res.status(200).send(imageData);
-  }
 
   // Check Sharp
   if (typeof sharp !== 'object' || typeof sharp.default !== 'function') {
@@ -309,54 +253,36 @@ export default async function handler(req, res) {
     }
 
     const isTextImage = text === 'true' || metadata.format === 'png' || (metadata.width / metadata.height > 2 || metadata.height / metadata.width > 2);
-    const isSmallImage = metadata.width < 300 || metadata.height < 300;
 
     // Resize jika w atau h disediakan
     if (w || h) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
-        kernel: sharp.kernel.mitchell,
+        kernel: sharp.kernel.lanczos3,
         fastShrinkOnLoad: false 
       });
     }
 
-    // Sharpening jika sharp=true
-    if (sharpParam === 'true') {
-      let sharpenParams;
-      if (isTextImage) {
-        sharpenParams = { sigma: isSmallImage ? 0.2 : 0.3, m1: 0.3, m2: 0.1, x1: 0.5, y2: 3, y3: 5 };
-      } else {
-        switch (sharpLevel.toLowerCase()) {
-          case 'low':
-            sharpenParams = { sigma: isSmallImage ? 0.3 : 0.5, m1: 0.5, m2: 0.2, x1: 1, y2: 5, y3: 10 };
-            break;
-          case 'high':
-            sharpenParams = { sigma: isSmallImage ? 0.8 : 1.2, m1: 1.0, m2: 0.5, x1: 3, y2: 15, y3: 30 };
-            break;
-          case 'medium':
-            sharpenParams = { sigma: isSmallImage ? 0.5 : 0.8, m1: 0.8, m2: 0.3, x1: 2, y2: 10, y3: 20 };
-            break;
-        }
-      }
-
-      sharpInstance = sharpInstance
-        .median(isTextImage ? 1 : isSmallImage ? 1 : 2)
-        .sharpen(sharpenParams)
-        .modulate({
-          brightness: isTextImage ? 1.0 : isSmallImage ? 1.0 : 1.01,
-          saturation: isTextImage ? 1.0 : isSmallImage ? 1.0 : 1.03
-        });
-    }
+    // Auto-sharpen untuk semua gambar yang diproses (selalu aktif)
+    sharpInstance = sharpInstance.sharpen({
+      sigma: 1.2,
+      m1: 1.5,
+      m2: 0.4,
+      x1: 3,
+      y2: 12,
+      y3: 25
+    });
 
     let outputContentType = contentType;
     if (format) {
-      const effectiveQuality = quality ? (isTextImage ? Math.max(quality, 70) : Math.max(quality, 60)) : (isTextImage ? 70 : 60);
+      // Quality minimum 70 untuk mencegah blur
+      const effectiveQuality = quality ? Math.max(quality, 70) : 80;
       switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
           sharpInstance = sharpInstance.jpeg({ 
-            quality: Math.min(effectiveQuality, 85), 
+            quality: effectiveQuality, 
             mozjpeg: true, 
             chromaSubsampling: isTextImage ? '4:4:4' : '4:2:0',
             progressive: true, 
@@ -366,7 +292,7 @@ export default async function handler(req, res) {
           break;
         case 'png':
           sharpInstance = sharpInstance.png({ 
-            quality: Math.min(effectiveQuality, 90), 
+            quality: effectiveQuality, 
             compressionLevel: 9, 
             palette: true, 
             effort: 10 
@@ -375,14 +301,14 @@ export default async function handler(req, res) {
           break;
         case 'avif':
           sharpInstance = sharpInstance.avif({ 
-            quality: Math.min(effectiveQuality, 80), 
+            quality: effectiveQuality, 
             effort: 6 
           });
           outputContentType = 'image/avif';
           break;
         case 'webp':
           sharpInstance = sharpInstance.webp({ 
-            quality: Math.min(effectiveQuality, 85), 
+            quality: effectiveQuality, 
             effort: 6, 
             smartSubsample: !isTextImage,
             nearLossless: false, 
@@ -414,4 +340,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-    }
+      }
