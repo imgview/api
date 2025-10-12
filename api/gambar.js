@@ -1,9 +1,9 @@
-import * as sharp from 'sharp';
+import Sharp from 'sharp';
 
-const FETCH_TIMEOUT = 30000;
+const FETCH_TIMEOUT = 10000;
 const MAX_RETRIES = 2;
 const API_KEY = process.env.API_KEY || '';
-const MAX_REQUESTS_WITHOUT_KEY = 10;
+const MAX_REQUESTS_WITHOUT_KEY = 5;
 const requestCounts = new Map();
 const cache = new Map();
 
@@ -78,122 +78,78 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Peringatan simpel untuk /api
-  if (req.url === '/api' || req.url === '/api/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(404).send('tidak ada apa apa disini');
-  }
+  // Ambil query — jangan gunakan nama 'sharp' untuk menghindari shadowing import
+  const { key, url, h, w, q, fit, format, sharpLevel, text } = req.query;
+  const doSharp = req.query.sharp; // tetap terima param 'sharp' tapi simpan di doSharp
 
-  // Peringatan simpel untuk /api/gambar
-  if (req.url === '/api/gambar' || req.url === '/api/gambar/') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('/?w=300&q=75&url=');
-  }
-
-  const { key, url, h, w, q, fit, format, sharp: sharpParam, sharpLevel, text } = req.query;
-
-  // Peringatan simpel untuk URL kosong
+  // === RETAIN ONLY: check url present ===
   if (!url || url.trim() === '') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Masukkan URL Gambar');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(400).send(`
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Proxy Gambar - Masukkan URL</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+        </style>
+      </head>
+      <body>
+        <center>
+          <h2>📸 Masukkan Parameter</h2>
+          masukkan parameter <code>url</code>
+          <h4>Contoh</h4>
+          <p>/api/image?url=https://example.com/pic.jpg&amp;w=400&amp;h=300&amp;q=80&amp;format=webp&amp;sharp=true&amp;sharpLevel=medium</p>
+      </body>
+    `);
   }
+  // =================================================
 
-  // Jika hanya url disediakan, kembalikan gambar asli
-  if (Object.keys(req.query).length === 1 || (Object.keys(req.query).length === 2 && key)) {
-    let imageUrl;
-    try {
-      imageUrl = new URL(url);
-      if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(400).send('URL tidak valid');
-      }
-      const hostname = imageUrl.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
-          hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
-          hostname.endsWith('.local')) {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.status(400).send('URL tidak diizinkan');
-      }
-    } catch {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak valid');
-    }
-
-    let response;
-    try {
-      response = await fetchWithTimeoutAndRetry(imageUrl.toString(), {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-          'Referer': ''
-        },
-        compress: true,
-        follow: 5
-      });
-    } catch {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(504).send('Gagal mengambil gambar');
-    }
-
-    if (!response.ok) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(response.status).send(`Gagal mengambil: ${response.status}`);
-    }
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.startsWith('image/')) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('Bukan gambar valid');
-    }
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(413).send('Gambar terlalu besar');
-    }
-
-    const imageBuffer = await response.arrayBuffer();
-    if (imageBuffer.byteLength < 1024) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('Gambar tidak bisa diambil');
-    }
-    const imageData = Buffer.from(imageBuffer);
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', imageData.length);
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
-    return res.status(200).send(imageData);
-  }
-
-  // Validasi dan rate limiting
+  // Validasi dan rate limiting (tetap ada)
   const hasValidKey = validateApiKey(key);
   const identifier = hasValidKey ? `key:${key}` : `ip:${getClientIP(req)}`;
   const rateLimitResult = checkRateLimit(identifier, hasValidKey);
 
   if (!rateLimitResult.allowed) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(429).send('Limit request tercapai, coba lagi nanti');
+    const resetTime = new Date(rateLimitResult.resetAt);
+    const now = new Date();
+    const minutesLeft = Math.ceil((resetTime - now) / (1000 * 60));
+    res.setHeader('Content-Type', 'text/html');
+    return res.status(429).send(`
+      <head>
+        <title>Akses Terbatas</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body>
+        <center>
+          <h2>⏰ Akses Terbatas</h2>
+          <p>⚠️ Anda telah mencapai limit ${MAX_REQUESTS_WITHOUT_KEY} request per jam</p>
+          <p>Coba lagi dalam ${minutesLeft} menit</p>
+          <p>Reset pada: ${new Date(rateLimitResult.resetAt).toLocaleTimeString('id-ID')}</p>
+          <hr>
+          <p><small>💡 Gunakan API Key untuk akses unlimited</small></p>
+        </center>
+      </body>
+    `);
   }
 
-  // Validasi URL
+  // Validasi URL (tetap)
   let imageUrl;
   try {
     imageUrl = new URL(url);
     if (imageUrl.protocol !== 'http:' && imageUrl.protocol !== 'https:') {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak valid');
+      return res.status(400).json({ error: 'Hanya protokol http atau https yang diizinkan' });
     }
     const hostname = imageUrl.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || 
         hostname.startsWith('10.') || hostname.startsWith('172.16.') || hostname.startsWith('172.31.') || 
         hostname.endsWith('.local')) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('URL tidak diizinkan');
+      return res.status(400).json({ error: 'URL tidak diizinkan' });
     }
   } catch {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('URL tidak valid');
+    return res.status(400).json({ error: 'URL tidak valid' });
   }
 
-  // Validasi parameter
+  // Validasi parameter (tetap)
   const height = h ? parseInt(h) : undefined;
   const width = w ? parseInt(w) : undefined;
   const quality = q ? parseInt(q) : undefined;
@@ -203,32 +159,26 @@ export default async function handler(req, res) {
 
   if ((height && (isNaN(height) || height <= 0 || height > 10000)) || 
       (width && (isNaN(width) || width <= 0 || width > 10000))) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Parameter h atau w tidak valid');
+    return res.status(400).json({ error: 'Parameter h atau w tidak valid, harus angka positif dan tidak lebih dari 10000' });
   }
   if (quality && (isNaN(quality) || quality < 1 || quality > 100)) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Parameter q tidak valid');
+    return res.status(400).json({ error: 'Parameter q tidak valid, harus antara 1-100' });
   }
   if (format && !validFormats.includes(format.toLowerCase())) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send(`Format tidak didukung: ${validFormats.join(', ')}`);
+    return res.status(400).json({ error: `Format tidak didukung. Gunakan: ${validFormats.join(', ')}` });
   }
   if (fit && !validFits.includes(fit.toLowerCase())) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send(`Fit tidak didukung: ${validFits.join(', ')}`);
+    return res.status(400).json({ error: `Fit tidak didukung. Gunakan: ${validFits.join(', ')}` });
   }
-  if (sharpParam === 'true' && (!sharpLevel || !validSharpLevels.includes(sharpLevel.toLowerCase()))) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Parameter sharpLevel wajib: low, medium, high');
+  if (doSharp === 'true' && (!sharpLevel || !validSharpLevels.includes(sharpLevel.toLowerCase()))) {
+    return res.status(400).json({ error: 'Parameter sharpLevel wajib disediakan (low, medium, high) jika sharp=true' });
   }
   if (text && text !== 'true' && text !== 'false') {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Parameter text harus true atau false');
+    return res.status(400).json({ error: 'Parameter text harus true atau false' });
   }
 
   // Cek cache
-  const cacheKey = `${url}-${w || ''}-${h || ''}-${q || ''}-${format || ''}-${fit || ''}-${sharpParam || ''}-${sharpLevel || ''}-${text || ''}`;
+  const cacheKey = `${url}-${w || ''}-${h || ''}-${q || ''}-${format || ''}-${fit || ''}-${doSharp || ''}-${sharpLevel || ''}-${text || ''}`;
   if (cache.has(cacheKey)) {
     const cachedImage = cache.get(cacheKey);
     res.setHeader('Content-Type', cachedImage.contentType);
@@ -239,116 +189,88 @@ export default async function handler(req, res) {
     return res.status(200).send(cachedImage.data);
   }
 
-  // Fetch gambar
+  // Fetch gambar (selalu fetch, kemudian proses walau tanpa params)
   let response;
   try {
     response = await fetchWithTimeoutAndRetry(imageUrl.toString(), {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (compatible; ImageProxy/1.0)',
         'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-        'Referer': ''
+        'Referer': imageUrl.origin
       },
       compress: true,
       follow: 5
     });
   } catch {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(504).send('Gagal mengambil gambar');
+    return res.status(504).json({ error: 'Gagal mengambil gambar dari sumber', message: 'Timeout atau koneksi terputus' });
   }
 
-  if (!response.ok) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(response.status).send(`Gagal mengambil: ${response.status}`);
-  }
+  if (!response.ok) return res.status(response.status).json({ error: `Gagal mengambil gambar: ${response.status}` });
   const contentType = response.headers.get('content-type');
-  if (!contentType || !contentType.startsWith('image/')) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Bukan gambar valid');
-  }
+  if (!contentType || !contentType.startsWith('image/')) return res.status(400).json({ error: 'URL tidak mengarah ke gambar yang valid' });
   const contentLength = response.headers.get('content-length');
-  if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(413).send('Gambar terlalu besar');
-  }
+  if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) return res.status(413).json({ error: 'Gambar terlalu besar (max 10MB)' });
 
   const imageBuffer = await response.arrayBuffer();
-  if (imageBuffer.byteLength < 1024) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(400).send('Gambar tidak bisa diambil');
-  }
+  if (imageBuffer.byteLength === 0) return res.status(400).json({ error: 'Gambar kosong atau korup' });
   let imageData = Buffer.from(imageBuffer);
   const originalSize = imageData.length;
 
-  // Jika tidak ada parameter pemrosesan, kembalikan gambar asli
-  if (!w && !h && !q && !format && !sharpParam && !fit && !text) {
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', imageData.length);
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
-    res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
-    if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
-    return res.status(200).send(imageData);
-  }
-
-  // Check Sharp
-  if (typeof sharp !== 'object' || typeof sharp.default !== 'function') {
-    console.error('Sharp module error: not loaded correctly');
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(500).send('Server error: Sharp tidak tersedia');
-  }
-
+  // PROSES: selalu lewat Sharp (meski tidak ada param). Kita atur sharpening lebih lembut:
   try {
-    let sharpInstance = sharp.default(imageData, { 
+    let sharpInstance = Sharp(imageData, { 
       failOnError: false, 
       limitInputPixels: Math.pow(2, 24)
     });
     
     const metadata = await sharpInstance.metadata();
-    if (!metadata || !metadata.width || !metadata.height) {
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      return res.status(400).send('Format gambar tidak didukung');
-    }
-
     const isTextImage = text === 'true' || metadata.format === 'png' || (metadata.width / metadata.height > 2 || metadata.height / metadata.width > 2);
     const isSmallImage = metadata.width < 300 || metadata.height < 300;
 
-    // Resize jika w atau h disediakan
+    // Resize jika w atau h disediakan (jika tidak, tidak di-resize)
     if (w || h) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
-        kernel: sharp.kernel.mitchell,
+        kernel: Sharp.kernel.mitchell,
         fastShrinkOnLoad: false 
       });
     }
 
-    // Sharpening jika sharp=true
-    if (sharpParam === 'true') {
+    // Sharpening: sedikit lebih tajam, dan blur dikurangi (median minimal)
+    if (doSharp === 'true') {
       let sharpenParams;
       if (isTextImage) {
-        sharpenParams = { sigma: isSmallImage ? 0.2 : 0.3, m1: 0.3, m2: 0.1, x1: 0.5, y2: 3, y3: 5 };
+        // untuk text, tetap hati-hati (sedikit tajam)
+        sharpenParams = { sigma: isSmallImage ? 0.25 : 0.35, m1: 0.35, m2: 0.12 };
       } else {
+        // tingkatkan sedikit setiap level (lebih lembut dari sebelumnya, tapi lebih tajam dari original)
         switch (sharpLevel.toLowerCase()) {
           case 'low':
-            sharpenParams = { sigma: isSmallImage ? 0.3 : 0.5, m1: 0.5, m2: 0.2, x1: 1, y2: 5, y3: 10 };
+            sharpenParams = { sigma: isSmallImage ? 0.4 : 0.6, m1: 0.6, m2: 0.25, x1: 1, y2: 6, y3: 12 };
             break;
           case 'high':
-            sharpenParams = { sigma: isSmallImage ? 0.8 : 1.2, m1: 1.0, m2: 0.5, x1: 3, y2: 15, y3: 30 };
+            sharpenParams = { sigma: isSmallImage ? 1.0 : 1.5, m1: 1.2, m2: 0.6, x1: 3.5, y2: 18, y3: 36 };
             break;
           case 'medium':
-            sharpenParams = { sigma: isSmallImage ? 0.5 : 0.8, m1: 0.8, m2: 0.3, x1: 2, y2: 10, y3: 20 };
+          default:
+            sharpenParams = { sigma: isSmallImage ? 0.7 : 1.0, m1: 0.9, m2: 0.35, x1: 2.2, y2: 12, y3: 24 };
             break;
         }
       }
 
+      // Kurangi efek median (blur) untuk membuat gambar lebih tajam, tapi jangan hilangkan sama sekali
+      const medianRadius = 1; // tetap kecil: 1 = sangat ringan
       sharpInstance = sharpInstance
-        .median(isTextImage ? 1 : isSmallImage ? 1 : 2)
+        .median(medianRadius)
         .sharpen(sharpenParams)
         .modulate({
           brightness: isTextImage ? 1.0 : isSmallImage ? 1.0 : 1.01,
-          saturation: isTextImage ? 1.0 : isSmallImage ? 1.0 : 1.03
+          saturation: isTextImage ? 1.0 : isSmallImage ? 1.0 : 1.02
         });
     }
 
+    // Format/quality handling (jika format dipilih)
     let outputContentType = contentType;
     if (format) {
       const effectiveQuality = quality ? (isTextImage ? Math.max(quality, 70) : Math.max(quality, 60)) : (isTextImage ? 70 : 60);
@@ -392,7 +314,8 @@ export default async function handler(req, res) {
           break;
       }
     }
-    
+
+    // Render buffer
     imageData = await sharpInstance.toBuffer();
     const optimizedSize = imageData.length;
     const reductionPercent = ((1 - optimizedSize / originalSize) * 100).toFixed(1);
@@ -408,10 +331,9 @@ export default async function handler(req, res) {
     res.setHeader('X-Size-Reduction', `${reductionPercent}%`);
     res.setHeader('X-Rate-Limit-Remaining', rateLimitResult.remaining.toString());
     if (hasValidKey) res.setHeader('X-API-Key-Valid', 'true');
-    res.status(200).send(imageData);
+    return res.status(200).send(imageData);
   } catch (sharpError) {
-    console.error('Sharp error:', sharpError.message);
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
+    if (process.env.NODE_ENV !== 'production') console.error('Sharp error:', sharpError);
+    return res.status(500).json({ error: 'Gagal memproses gambar', message: sharpError.message });
   }
 }
