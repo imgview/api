@@ -254,29 +254,36 @@ export default async function handler(req, res) {
 
     const isTextImage = text === 'true' || metadata.format === 'png' || (metadata.width / metadata.height > 2 || metadata.height / metadata.width > 2);
 
+    // UPDATE: Tambah blur ringan jika isTextImage untuk smoothing (kurangi noise/kasar)
+    if (isTextImage) {
+      sharpInstance = sharpInstance.blur(0.3);  // Blur kecil untuk kelembutan
+    }
+
     // Resize jika w atau h disediakan
     if (w || h) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
-        kernel: sharp.kernel.lanczos3,  // Kembali ke lanczos3 untuk ketajaman
+        kernel: sharp.kernel.mitchell,  // UPDATE: Ganti ke 'mitchell' untuk resize lebih lembut (kurangi kasar)
         fastShrinkOnLoad: true
       });
     }
 
-    // Sharpen seimbang - tajam tapi halus
-    sharpInstance = sharpInstance.sharpen({
-      sigma: 0.8,
-      m1: 0.7,
-      m2: 0.3,
-      x1: 2,
-      y2: 10,
-      y3: 20
-    });
+    // UPDATE: Sharpen hanya jika bukan text image, dan parameter lebih ringan untuk halus
+    if (!isTextImage) {
+      sharpInstance = sharpInstance.sharpen({
+        sigma: 0.5,  // UPDATE: Kurangi sigma untuk efek lebih halus
+        m1: 0.5,     // UPDATE: Kurangi m1
+        m2: 0.2,     // UPDATE: Kurangi m2
+        x1: 1,       // UPDATE: Sesuaikan threshold
+        y2: 8,
+        y3: 15
+      });
+    }
 
     let outputContentType = contentType;
     if (format) {
-      const effectiveQuality = quality ? Math.max(quality, 75) : 82;
+      const effectiveQuality = quality ? Math.max(quality, 80) : 85;  // UPDATE: Naikkan default quality ke 85 untuk kurangi kompresi kasar
       switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
@@ -336,4 +343,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-}
+  }
