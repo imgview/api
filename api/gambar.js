@@ -266,9 +266,9 @@ export default async function handler(req, res) {
 
     // Sharpen seimbang - tajam tapi halus
     sharpInstance = sharpInstance.sharpen({
-      sigma: 0.6,
-      m1: 0.6,
-      m2: 0.4,
+      sigma: 0.8,
+      m1: 0.7,
+      m2: 0.3,
       x1: 2,
       y2: 10,
       y3: 20
@@ -276,7 +276,7 @@ export default async function handler(req, res) {
 
     let outputContentType = contentType;
     if (format) {
-      const effectiveQuality = quality ? Math.max(quality, 100) : 82;
+      const effectiveQuality = quality ? Math.max(quality, 75) : 82;
       switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
@@ -336,4 +336,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-    }
+}
