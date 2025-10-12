@@ -252,24 +252,27 @@ export default async function handler(req, res) {
       return res.status(400).send('Format gambar tidak didukung');
     }
 
-    // UPDATE KHUSUS KOMIK: Asumsikan gambar komik sering vertikal/horizontal panjang, jadi perluas kriteria isTextImage untuk teks/dialog
+    // UPDATE KHUSUS KOMIK: Asumsikan gambar komik sering vertikal/horizontal panjang, jadi perluas kriteria isComicImage untuk teks/dialog
     const aspectRatio = Math.max(metadata.width / metadata.height, metadata.height / metadata.width);
     const isComicImage = text === 'true' || metadata.format === 'png' || aspectRatio > 1.5;  // Lebih longgar untuk komik (aspect >1.5)
+
+    // UPDATE BARU: Tambah median filter untuk mengurangi noise (kasar) tanpa terlalu blur
+    sharpInstance = sharpInstance.median(3);  // Window 3x3 untuk noise reduction pada komik
 
     // UPDATE KHUSUS KOMIK: Sharpen ringan untuk teks/dialog komik agar jelas tapi halus
     if (isComicImage) {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.4,  // Ringan untuk teks komik, tingkatkan kejelasan tanpa over-noise
-        m1: 0.4,
-        m2: 0.15,
+        sigma: 0.6,  // UPDATE BARU: Naikkan sigma ke 0.6 untuk mengurangi blur, tapi tetap halus
+        m1: 0.5,
+        m2: 0.2,
         x1: 1.5,
-        y2: 6,
-        y3: 12
+        y2: 8,
+        y3: 15
       });
     } else {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.7,
-        m1: 0.6,
+        sigma: 0.8,  // UPDATE BARU: Naikkan untuk non-komik agar lebih tajam
+        m1: 0.7,
         m2: 0.3,
         x1: 2,
         y2: 10,
@@ -279,7 +282,7 @@ export default async function handler(req, res) {
 
     // Resize jika w atau h disediakan
     if (w || h) {
-      const resizeKernel = isComicImage ? sharp.kernel.mitchell : sharp.kernel.lanczos3;  // Mitchell untuk komik (lembut pada teks), lanczos3 untuk lain
+      const resizeKernel = sharp.kernel.lanczos3;  // UPDATE BARU: Gunakan lanczos3 untuk ketajaman saat resize, kurangi blur
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
@@ -290,9 +293,9 @@ export default async function handler(req, res) {
 
     // Tambah modulate untuk kontras lebih baik pada komik (warna cerah, teks hitam-putih)
     sharpInstance = sharpInstance.modulate({
-      brightness: 1.05,
-      saturation: 1.15,  // Naikkan saturasi sedikit untuk warna komik lebih hidup
-      lightness: 1.02
+      brightness: 1.1,  // UPDATE BARU: Naikkan brightness untuk mengurangi tampilan blur
+      saturation: 1.2,  // Naikkan saturasi untuk warna komik lebih hidup
+      lightness: 1.05   // UPDATE BARU: Naikkan lightness untuk clarity
     });
 
     // UPDATE DEFAULT WEBP: Set default format ke 'webp' jika tidak ditentukan
@@ -359,4 +362,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-    }
+  }
