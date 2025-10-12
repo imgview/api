@@ -254,36 +254,51 @@ export default async function handler(req, res) {
 
     const isTextImage = text === 'true' || metadata.format === 'png' || (metadata.width / metadata.height > 2 || metadata.height / metadata.width > 2);
 
-    // UPDATE: Tambah blur ringan jika isTextImage untuk smoothing (kurangi noise/kasar)
+    // UPDATE BARU: Hilangkan blur, ganti dengan sharpen sangat ringan untuk text image agar jelas
     if (isTextImage) {
-      sharpInstance = sharpInstance.blur(0.3);  // Blur kecil untuk kelembutan
+      sharpInstance = sharpInstance.sharpen({
+        sigma: 0.3,  // Sangat ringan untuk text, tingkatkan kejelasan tanpa noise
+        m1: 0.3,
+        m2: 0.1,
+        x1: 1,
+        y2: 5,
+        y3: 10
+      });
     }
 
     // Resize jika w atau h disediakan
     if (w || h) {
+      const resizeKernel = isTextImage ? sharp.kernel.mitchell : sharp.kernel.lanczos3;  // UPDATE BARU: Kernel kondisional - mitchell untuk text (lembut), lanczos3 untuk non-text (jelas)
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
-        kernel: sharp.kernel.mitchell,  // UPDATE: Ganti ke 'mitchell' untuk resize lebih lembut (kurangi kasar)
+        kernel: resizeKernel,
         fastShrinkOnLoad: true
       });
     }
 
-    // UPDATE: Sharpen hanya jika bukan text image, dan parameter lebih ringan untuk halus
+    // Sharpen untuk non-text, tingkatkan sedikit untuk kejelasan
     if (!isTextImage) {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.5,  // UPDATE: Kurangi sigma untuk efek lebih halus
-        m1: 0.5,     // UPDATE: Kurangi m1
-        m2: 0.2,     // UPDATE: Kurangi m2
-        x1: 1,       // UPDATE: Sesuaikan threshold
-        y2: 8,
-        y3: 15
+        sigma: 0.7,  // UPDATE BARU: Naikkan sigma sedikit untuk lebih tajam/jelas
+        m1: 0.6,
+        m2: 0.3,
+        x1: 2,
+        y2: 10,
+        y3: 20
       });
     }
 
+    // UPDATE BARU: Tambah modulate untuk tingkatkan kontras/brightness halus, bantu kejelasan keseluruhan
+    sharpInstance = sharpInstance.modulate({
+      brightness: 1.05,  // Sedikit naikkan brightness
+      saturation: 1.1,   // Sedikit naikkan saturasi untuk warna lebih hidup
+      lightness: 1.02    // Sedikit naikkan lightness
+    });
+
     let outputContentType = contentType;
     if (format) {
-      const effectiveQuality = quality ? Math.max(quality, 80) : 85;  // UPDATE: Naikkan default quality ke 85 untuk kurangi kompresi kasar
+      const effectiveQuality = quality ? Math.max(quality, 85) : 85;  // UPDATE BARU: Minimal 85 untuk jaga detail/kejelasan
       switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
@@ -343,4 +358,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-  }
+}
