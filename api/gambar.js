@@ -259,16 +259,16 @@ export default async function handler(req, res) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
-        kernel: sharp.kernel.lanczos3,
-        fastShrinkOnLoad: false 
+        kernel: sharp.kernel.lanczos2,  // Lebih halus dari lanczos3
+        fastShrinkOnLoad: true  // Optimasi resize
       });
     }
 
-    // Auto-sharpen untuk semua gambar yang diproses (selalu aktif)
+    // Sharpen ringan untuk mempertahankan detail tanpa bikin kasar
     sharpInstance = sharpInstance.sharpen({
-      sigma: 1.0,
-      m1: 1.2,
-      m2: 0.3,
+      sigma: 0.5,   // Lebih lembut
+      m1: 0.5,      // Tidak terlalu agresif
+      m2: 0.2,
       x1: 2,
       y2: 10,
       y3: 20
@@ -276,43 +276,46 @@ export default async function handler(req, res) {
 
     let outputContentType = contentType;
     if (format) {
-      // Quality minimum 70 untuk mencegah blur
-      const effectiveQuality = quality ? Math.max(quality, 70) : 80;
+      // Quality lebih tinggi untuk hasil lebih halus
+      const effectiveQuality = quality ? Math.max(quality, 75) : 82;
       switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
           sharpInstance = sharpInstance.jpeg({ 
             quality: effectiveQuality, 
             mozjpeg: true, 
-            chromaSubsampling: isTextImage ? '4:4:4' : '4:2:0',
+            chromaSubsampling: '4:2:0',  // Standar untuk foto
             progressive: true, 
-            optimizeScans: true 
+            optimizeScans: true,
+            trellisQuantisation: true,  // Kualitas lebih baik
+            overshootDeringing: true     // Kurangi artifact
           });
           outputContentType = 'image/jpeg';
           break;
         case 'png':
           sharpInstance = sharpInstance.png({ 
             quality: effectiveQuality, 
-            compressionLevel: 9, 
-            palette: true, 
-            effort: 10 
+            compressionLevel: 6,  // Lebih cepat, tetap bagus
+            palette: false,       // Full color
+            effort: 7 
           });
           outputContentType = 'image/png';
           break;
         case 'avif':
           sharpInstance = sharpInstance.avif({ 
             quality: effectiveQuality, 
-            effort: 6 
+            effort: 4,
+            chromaSubsampling: '4:2:0'
           });
           outputContentType = 'image/avif';
           break;
         case 'webp':
           sharpInstance = sharpInstance.webp({ 
             quality: effectiveQuality, 
-            effort: 6, 
-            smartSubsample: !isTextImage,
+            effort: 4,  // Balance speed vs quality
+            smartSubsample: true,
             nearLossless: false, 
-            reductionEffort: 6 
+            reductionEffort: 4
           });
           outputContentType = 'image/webp';
           break;
@@ -340,4 +343,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-}
+          }
