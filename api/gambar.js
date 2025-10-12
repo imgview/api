@@ -252,35 +252,23 @@ export default async function handler(req, res) {
       return res.status(400).send('Format gambar tidak didukung');
     }
 
-    const isTextImage = text === 'true' || metadata.format === 'png' || (metadata.width / metadata.height > 2 || metadata.height / metadata.width > 2);
+    // UPDATE KHUSUS KOMIK: Asumsikan gambar komik sering vertikal/horizontal panjang, jadi perluas kriteria isTextImage untuk teks/dialog
+    const aspectRatio = Math.max(metadata.width / metadata.height, metadata.height / metadata.width);
+    const isComicImage = text === 'true' || metadata.format === 'png' || aspectRatio > 1.5;  // Lebih longgar untuk komik (aspect >1.5)
 
-    // UPDATE BARU: Hilangkan blur, ganti dengan sharpen sangat ringan untuk text image agar jelas
-    if (isTextImage) {
+    // UPDATE KHUSUS KOMIK: Sharpen ringan untuk teks/dialog komik agar jelas tapi halus
+    if (isComicImage) {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.3,  // Sangat ringan untuk text, tingkatkan kejelasan tanpa noise
-        m1: 0.3,
-        m2: 0.1,
-        x1: 1,
-        y2: 5,
-        y3: 10
+        sigma: 0.4,  // Ringan untuk teks komik, tingkatkan kejelasan tanpa over-noise
+        m1: 0.4,
+        m2: 0.15,
+        x1: 1.5,
+        y2: 6,
+        y3: 12
       });
-    }
-
-    // Resize jika w atau h disediakan
-    if (w || h) {
-      const resizeKernel = isTextImage ? sharp.kernel.mitchell : sharp.kernel.lanczos3;  // UPDATE BARU: Kernel kondisional - mitchell untuk text (lembut), lanczos3 untuk non-text (jelas)
-      sharpInstance = sharpInstance.resize(width, height, { 
-        fit: fit || 'inside',
-        withoutEnlargement: true, 
-        kernel: resizeKernel,
-        fastShrinkOnLoad: true
-      });
-    }
-
-    // Sharpen untuk non-text, tingkatkan sedikit untuk kejelasan
-    if (!isTextImage) {
+    } else {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.7,  // UPDATE BARU: Naikkan sigma sedikit untuk lebih tajam/jelas
+        sigma: 0.7,
         m1: 0.6,
         m2: 0.3,
         x1: 2,
@@ -289,52 +277,65 @@ export default async function handler(req, res) {
       });
     }
 
-    // UPDATE BARU: Tambah modulate untuk tingkatkan kontras/brightness halus, bantu kejelasan keseluruhan
+    // Resize jika w atau h disediakan
+    if (w || h) {
+      const resizeKernel = isComicImage ? sharp.kernel.mitchell : sharp.kernel.lanczos3;  // Mitchell untuk komik (lembut pada teks), lanczos3 untuk lain
+      sharpInstance = sharpInstance.resize(width, height, { 
+        fit: fit || 'inside',
+        withoutEnlargement: true, 
+        kernel: resizeKernel,
+        fastShrinkOnLoad: true
+      });
+    }
+
+    // Tambah modulate untuk kontras lebih baik pada komik (warna cerah, teks hitam-putih)
     sharpInstance = sharpInstance.modulate({
-      brightness: 1.05,  // Sedikit naikkan brightness
-      saturation: 1.1,   // Sedikit naikkan saturasi untuk warna lebih hidup
-      lightness: 1.02    // Sedikit naikkan lightness
+      brightness: 1.05,
+      saturation: 1.15,  // Naikkan saturasi sedikit untuk warna komik lebih hidup
+      lightness: 1.02
     });
 
+    // UPDATE DEFAULT WEBP: Set default format ke 'webp' jika tidak ditentukan
+    const effectiveFormat = format ? format.toLowerCase() : 'webp';
     let outputContentType = contentType;
-    if (format) {
-      const effectiveQuality = quality ? Math.max(quality, 85) : 85;  // UPDATE BARU: Minimal 85 untuk jaga detail/kejelasan
-      switch (format.toLowerCase()) {
-        case 'jpeg':
-        case 'jpg':
-          sharpInstance = sharpInstance.jpeg({ 
-            quality: effectiveQuality, 
-            mozjpeg: true, 
-            chromaSubsampling: '4:2:0',
-            progressive: true, 
-            optimizeScans: true
-          });
-          outputContentType = 'image/jpeg';
-          break;
-        case 'png':
-          sharpInstance = sharpInstance.png({ 
-            quality: effectiveQuality, 
-            compressionLevel: 6,
-            effort: 4
-          });
-          outputContentType = 'image/png';
-          break;
-        case 'avif':
-          sharpInstance = sharpInstance.avif({ 
-            quality: effectiveQuality, 
-            effort: 4
-          });
-          outputContentType = 'image/avif';
-          break;
-        case 'webp':
-          sharpInstance = sharpInstance.webp({ 
-            quality: effectiveQuality, 
-            effort: 4,
-            smartSubsample: true
-          });
-          outputContentType = 'image/webp';
-          break;
-      }
+    const effectiveQuality = quality ? Math.max(quality, 85) : 85;  // Quality tinggi untuk detail komik
+
+    switch (effectiveFormat) {
+      case 'jpeg':
+      case 'jpg':
+        sharpInstance = sharpInstance.jpeg({ 
+          quality: effectiveQuality, 
+          mozjpeg: true, 
+          chromaSubsampling: '4:2:0',
+          progressive: true, 
+          optimizeScans: true
+        });
+        outputContentType = 'image/jpeg';
+        break;
+      case 'png':
+        sharpInstance = sharpInstance.png({ 
+          quality: effectiveQuality, 
+          compressionLevel: 7,  // Naikkan ke 7 untuk komik (kompresi lebih baik tanpa loss)
+          effort: 5
+        });
+        outputContentType = 'image/png';
+        break;
+      case 'avif':
+        sharpInstance = sharpInstance.avif({ 
+          quality: effectiveQuality, 
+          effort: 5  // Naikkan effort untuk optimasi lebih baik
+        });
+        outputContentType = 'image/avif';
+        break;
+      case 'webp':
+        sharpInstance = sharpInstance.webp({ 
+          quality: effectiveQuality, 
+          effort: 5,  // UPDATE KHUSUS KOMIK: Naikkan effort ke 5 untuk kompresi lebih optimal pada komik
+          smartSubsample: true,
+          lossless: isComicImage ? false : false  // Lossy untuk ukuran kecil, tapi bisa ganti true jika perlu lossless
+        });
+        outputContentType = 'image/webp';
+        break;
     }
     
     imageData = await sharpInstance.toBuffer();
@@ -358,4 +359,4 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(500).send(`Gagal memproses gambar: ${sharpError.message}`);
   }
-}
+    }
