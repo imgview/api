@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     const imageUrl = decodeURIComponent(url);
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 35000);
 
     const response = await fetch(imageUrl, {
       signal: controller.signal,
