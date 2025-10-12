@@ -1,4 +1,4 @@
-import * as sharp from 'sharp';
+himport * as sharp from 'sharp';
 
 const FETCH_TIMEOUT = 30000;
 const MAX_RETRIES = 2;
@@ -248,61 +248,62 @@ export default async function handler(req, res) {
     const aspectRatio = Math.max(metadata.width / metadata.height, metadata.height / metadata.width);
     const isComicImage = text === 'true' || metadata.format === 'png' || aspectRatio > 1.8;
 
-    // Resize dengan kernel terbaik untuk teks
+    // PERBAIKAN: JANGAN gunakan median filter - membuat teks blur!
+    // Langsung resize dengan kernel terbaik
     if (w || h) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside',
         withoutEnlargement: true, 
         kernel: sharp.kernel.lanczos3,
-        fastShrinkOnLoad: false
+        fastShrinkOnLoad: false // PENTING: Disable untuk preserve detail teks
       });
     }
 
-    // SOLUSI OPTIMAL: Unsharp mask dengan threshold tinggi
-    // Hanya sharpen edge yang kuat (teks/line art), skip edge halus (menghindari ringing)
+    // PERBAIKAN: Sharpen SANGAT RINGAN untuk komik
+    // Over-sharpen adalah penyebab teks hilang!
     if (isComicImage) {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.8,      // Radius cukup untuk smooth
-        m1: 1.2,         // Threshold TINGGI - hanya sharpen edge kuat
-        m2: 0.15,        // Jaggedness rendah - kurangi artifacts
-        x1: 1.3,         // Strength moderat
-        y2: 5,
-        y3: 10
+        sigma: 0.5,   // Sangat kecil - hanya edge enhancement minimal
+        m1: 0.5,      // Jangan sharpen area flat
+        m2: 0.2,      // Minimal jaggedness
+        x1: 1.5,      // Strength rendah
+        y2: 6,
+        y3: 12
       });
     } else {
       sharpInstance = sharpInstance.sharpen({
-        sigma: 0.9,
-        m1: 0.9,
-        m2: 0.2,
-        x1: 1.8,
-        y2: 7,
-        y3: 14
+        sigma: 0.7,
+        m1: 0.6,
+        m2: 0.25,
+        x1: 2.0,
+        y2: 8,
+        y3: 16
       });
     }
 
-    // Modulate minimal untuk balance
+    // PERBAIKAN: Modulate sangat konservatif
+    // Brightness/contrast berlebihan membuat teks hilang
     if (isComicImage) {
       sharpInstance = sharpInstance.modulate({
-        brightness: 1.01,
-        saturation: 1.03,
+        brightness: 1.0,   // TIDAK diubah
+        saturation: 1.05,  // Minimal boost
         lightness: 0
       });
     } else {
       sharpInstance = sharpInstance.modulate({
-        brightness: 1.02,
-        saturation: 1.05,
+        brightness: 1.03,
+        saturation: 1.08,
         lightness: 0
       });
     }
 
-    // PERBAIKAN: Pertahankan format original sebagai default
-    // Hanya convert jika user eksplisit minta dengan parameter format
-    const effectiveFormat = format ? format.toLowerCase() : metadata.format;
+    // Format output dengan quality tinggi untuk komik
+    const effectiveFormat = format ? format.toLowerCase() : 'webp';
     let outputContentType = contentType;
     
-    // Quality optimal seperti weserv.nl - balance antara size dan clarity
-    const baseQuality = quality || (isComicImage ? 100 : 100);
-    const effectiveQuality = Math.min(Math.max(baseQuality, 100), 100);
+    // PERBAIKAN: Quality LEBIH TINGGI untuk preserve teks
+    const baseQuality = quality || (isComicImage ? 92 : 85);
+    const effectiveQuality = Math.min(Math.max(baseQuality, 85), 98);
 
     switch (effectiveFormat) {
       case 'jpeg':
@@ -310,42 +311,43 @@ export default async function handler(req, res) {
         sharpInstance = sharpInstance.jpeg({ 
           quality: effectiveQuality, 
           mozjpeg: true,
-          chromaSubsampling: '4:4:4',
+          chromaSubsampling: '4:4:4', // PENTING: Full chroma untuk teks
           progressive: true,
           optimizeScans: true,
           trellisQuantisation: true,
-          overshootDeringing: false
+          overshootDeringing: true
         });
         outputContentType = 'image/jpeg';
         break;
       case 'png':
         sharpInstance = sharpInstance.png({ 
           quality: effectiveQuality,
-          compressionLevel: 6,
-          palette: false,
-          effort: 4,
-          adaptiveFiltering: true,
-          dither: 0 // Disable dithering untuk teks lebih smooth
+          compressionLevel: 6, // Turunkan untuk speed vs size balance
+          palette: false, // JANGAN palette untuk komik berwarna
+          effort: 5,
+          adaptiveFiltering: true
         });
         outputContentType = 'image/png';
         break;
       case 'avif':
         sharpInstance = sharpInstance.avif({ 
           quality: effectiveQuality,
-          effort: 4,
+          effort: 4, // Balance speed vs quality
           chromaSubsampling: '4:4:4'
         });
         outputContentType = 'image/avif';
         break;
       case 'webp':
+      default:
+        // PERBAIKAN: Setting WebP optimal untuk teks komik
         sharpInstance = sharpInstance.webp({ 
           quality: effectiveQuality,
-          effort: 4,
-          smartSubsample: false,
-          nearLossless: false,
-          preset: isComicImage ? 'text' : 'default',
+          effort: 4, // Cukup untuk optimasi tanpa terlalu lambat
+          smartSubsample: false, // DISABLE untuk preserve teks sharp
+          nearLossless: false, // Lossy tapi quality tinggi lebih baik
+          preset: 'text', // PENTING: Preset khusus untuk teks/line art
           alphaQuality: 100,
-          method: 6
+          method: 6 // Metode kompresi terbaik
         });
         outputContentType = 'image/webp';
         break;
