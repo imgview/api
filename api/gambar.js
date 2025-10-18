@@ -51,6 +51,19 @@ async function fetchWithTimeoutAndRetry(url, options = {}, retries = MAX_RETRIES
   }
 }
 
+// Fungsi untuk deteksi format gambar dari buffer
+function detectImageFormat(buffer) {
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return 'jpeg';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'png';
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) return 'webp';
+  if (buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) {
+    // Check for AVIF signature
+    const ftypString = buffer.slice(4, 12).toString('ascii');
+    if (ftypString.includes('avif') || ftypString.includes('avis')) return 'avif';
+  }
+  return 'unknown';
+}
+
 setInterval(() => {
   const now = Date.now();
   const hourAgo = now - 3600000;
@@ -123,47 +136,115 @@ module.exports = async function handler(req, res) {
     const response = await fetchWithTimeoutAndRetry(imageUrl.toString(), {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept': 'image/webp,image/apng,image/avif,image/*,*/*;q=0.8',
         'Referer': imageUrl.origin
       }
     });
 
     if (!response.ok) return res.status(response.status).json({ error: `Gagal mengambil gambar: ${response.status}` });
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    
     let imageBuffer = Buffer.from(await response.arrayBuffer());
+    
+    // Deteksi format gambar
+    const detectedFormat = detectImageFormat(imageBuffer);
+    console.log(`Format terdeteksi: ${detectedFormat}`);
 
-    let sharpInstance = Sharp(imageBuffer, { failOnError: false, limitInputPixels: Math.pow(2, 24) });
+    // Konfigurasi Sharp dengan opsi khusus untuk AVIF
+    const sharpOptions = { 
+      failOnError: false, 
+      limitInputPixels: Math.pow(2, 24)
+    };
 
-    if (w || h) sharpInstance = sharpInstance.resize(width, height, { fit: fit || 'inside', withoutEnlargement: true, kernel: Sharp.kernel.mitchell });
+    // Tambahkan unlimited untuk AVIF input
+    if (detectedFormat === 'avif') {
+      sharpOptions.unlimited = true;
+    }
 
+    let sharpInstance;
+    try {
+      sharpInstance = Sharp(imageBuffer, sharpOptions);
+      
+      // Ambil metadata untuk verifikasi
+      const metadata = await sharpInstance.metadata();
+      console.log(`Format dari metadata: ${metadata.format}`);
+      
+    } catch (sharpError) {
+      console.error('Error saat inisialisasi Sharp:', sharpError);
+      
+      // Fallback: konversi AVIF ke PNG dulu menggunakan Sharp
+      if (detectedFormat === 'avif') {
+        try {
+          const tempSharp = Sharp(imageBuffer, { unlimited: true, failOnError: false });
+          imageBuffer = await tempSharp.png().toBuffer();
+          sharpInstance = Sharp(imageBuffer, { failOnError: false });
+        } catch (conversionError) {
+          return res.status(500).json({ 
+            error: 'Gagal memproses gambar AVIF', 
+            message: 'Format AVIF tidak didukung sepenuhnya',
+            suggestion: 'Coba install sharp versi terbaru dengan: npm install sharp'
+          });
+        }
+      } else {
+        throw sharpError;
+      }
+    }
+
+    // Resize jika diperlukan
+    if (w || h) {
+      sharpInstance = sharpInstance.resize(width, height, { 
+        fit: fit || 'inside', 
+        withoutEnlargement: true, 
+        kernel: Sharp.kernel.mitchell 
+      });
+    }
+
+    // Sharpen jika diminta
     if (doSharp === 'true') {
       sharpInstance = sharpInstance.sharpen({ sigma: 0.7, m1: 0.9, m2: 0.35 });
     }
 
+    // Konversi ke format output yang diminta
+    let outputContentType = 'image/jpeg';
     if (format) {
       switch (format.toLowerCase()) {
         case 'jpeg':
         case 'jpg':
           sharpInstance = sharpInstance.jpeg({ quality: quality || 80 });
+          outputContentType = 'image/jpeg';
           break;
         case 'png':
           sharpInstance = sharpInstance.png({ quality: quality || 80 });
+          outputContentType = 'image/png';
           break;
         case 'webp':
           sharpInstance = sharpInstance.webp({ quality: quality || 80 });
+          outputContentType = 'image/webp';
           break;
         case 'avif':
           sharpInstance = sharpInstance.avif({ quality: quality || 80 });
+          outputContentType = 'image/avif';
           break;
       }
+    } else {
+      // Default ke WebP jika tidak ada format yang diminta
+      sharpInstance = sharpInstance.webp({ quality: quality || 80 });
+      outputContentType = 'image/webp';
     }
 
     const outputBuffer = await sharpInstance.toBuffer();
-    res.setHeader('Content-Type', contentType);
+    
+    res.setHeader('Content-Type', outputContentType);
     res.setHeader('Content-Length', outputBuffer.length);
     res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=31536000, immutable');
+    res.setHeader('X-Image-Format-Detected', detectedFormat);
     res.status(200).send(outputBuffer);
+    
   } catch (err) {
-    res.status(500).json({ error: 'Gagal memproses gambar', message: err.message });
+    console.error('Error processing image:', err);
+    res.status(500).json({ 
+      error: 'Gagal memproses gambar', 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
