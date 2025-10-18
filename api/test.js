@@ -1,48 +1,48 @@
-// File: api/cache-image.js (Vercel) atau netlify/edge-functions/cache-image.js (Netlify)
+// File: api/test.js (Vercel) / cache-image.js (Netlify)
 
 export default async (request) => {
-  // Menggunakan new URL(request.url) untuk mengurai URL request
   const urlParams = new URL(request.url).searchParams;
-  const imageUrl = urlParams.get("url"); // Gunakan nama variabel yang lebih jelas
+  const imageUrl = urlParams.get("url");
 
-  if (!imageUrl) {
-    return new Response("Parameter 'url' hilang.", { status: 400 });
+  // KOREKSI KRITIS: Cek jika parameter hilang ATAU kosong.
+  if (!imageUrl || imageUrl.trim() === "") {
+    return new Response("Parameter 'url' (URL gambar sumber) hilang atau kosong.", { 
+        status: 400, 
+        headers: { "Content-Type": "text/plain" }
+    });
   }
 
-  // VALIDASI: Pastikan URL adalah protokol HTTP/HTTPS yang valid sebelum fetch
-  if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
-    return new Response("URL gambar tidak valid.", { status: 400 });
-  }
-
+  // Lanjutkan dengan perbaikan anti-hotlinking sebelumnya:
   try {
-    // Lakukan fetch ke sumber gambar
-    const response = await fetch(imageUrl);
+    const response = await fetch(imageUrl, {
+      headers: {
+        // Menyamar sebagai Browser Chrome
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        // Meniru Referer dari halaman sumber (untuk anti-hotlinking)
+        "Referer": new URL(imageUrl).origin 
+      }
+    });
 
     if (!response.ok) {
-      // Mengembalikan error sumber, ini penting untuk debugging
-      return new Response(`Gagal mengambil gambar dari sumber. Status: ${response.status}`, {
+      return new Response(`Gagal mengambil gambar. Status: ${response.status}.`, {
         status: response.status,
       });
     }
 
-    // Buat response baru dengan header caching yang kuat
+    // Set header cache yang kuat
     const headers = new Headers(response.headers);
-    
-    // Set header cache yang agresif untuk memaksa CDN menyimpan
-    headers.set(
-      "Cache-Control",
-      "public, max-age=31536000, s-maxage=31536000, immutable"
-    );
+    headers.set("Cache-Control", "public, max-age=31536000, s-maxage=31536000, immutable");
+    headers.set("Access-Control-Allow-Origin", "*");
 
-    // Salurkan body dan header
     return new Response(response.body, {
       status: 200,
       headers: headers,
     });
+
   } catch (error) {
+    // Ini menangani error koneksi atau DNS
     console.error("Image proxy error:", error);
-    // Error 500 ini menandakan kegagalan koneksi atau error internal lainnya
-    return new Response(`Error 500: Koneksi atau runtime gagal. ${error.message}`, {
+    return new Response(`Error 500: Koneksi gagal ke sumber gambar. ${error.message}`, {
       status: 500,
     });
   }
