@@ -179,7 +179,7 @@ module.exports = async function handler(req, res) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside', 
         withoutEnlargement: true, 
-        kernel: Sharp.kernel.cubic // Lebih smooth, tidak kotak-kotak
+        kernel: Sharp.kernel.mitchell // Balance antara smooth dan tajam
       });
     }
 
