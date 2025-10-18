@@ -183,12 +183,12 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Sharpen default true dengan parameter balanced
+    // Sharpen default true dengan parameter lebih halus
     if (doSharp) {
       sharpInstance = sharpInstance.sharpen({ 
-        sigma: 0.6,   // Turun 0.1 dari 0.85
-        m1: 0.95,      // Sedikit turun dari 1.0
-        m2: 0.4        // Turun dari 0.5 ke 0.4
+        sigma: 0.6,    // Sudah diturunkan user
+        m1: 0.8,       // Turun dari 0.95 ke 0.8
+        m2: 0.3        // Turun dari 0.4 ke 0.3
       });
     }
 
