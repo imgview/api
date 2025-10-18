@@ -179,16 +179,16 @@ module.exports = async function handler(req, res) {
       sharpInstance = sharpInstance.resize(width, height, { 
         fit: fit || 'inside', 
         withoutEnlargement: true, 
-        kernel: Sharp.kernel.lanczos3 // Lebih tajam dari mitchell
+        kernel: Sharp.kernel.lanczos3
       });
     }
 
-    // Sharpen default true dengan parameter lebih kuat
+    // Sharpen default true dengan parameter balanced
     if (doSharp) {
       sharpInstance = sharpInstance.sharpen({ 
-        sigma: 1.0,    // Naik dari 0.7 ke 1.0
-        m1: 1.0,       // Naik dari 0.9 ke 1.0
-        m2: 0.5        // Naik dari 0.35 ke 0.5
+        sigma: 0.75,   // Turun 0.1 dari 0.85
+        m1: 0.95,      // Sedikit turun dari 1.0
+        m2: 0.4        // Turun dari 0.5 ke 0.4
       });
     }
 
