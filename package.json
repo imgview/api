@@ -5,7 +5,6 @@
   "main": "api/gambar.js",
   "scripts": {
     "dev": "vercel dev",
-    "build": "npm install --platform=linux --arch=x64 sharp",
     "deploy": "vercel --prod"
   },
   "dependencies": {
