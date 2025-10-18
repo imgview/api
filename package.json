@@ -1,8 +1,21 @@
 {
   "name": "Image Proxy",
   "version": "1.0.0",
+  "description": "Image proxy with AVIF support",
+  "main": "api/gambar.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "npm install --platform=linux --arch=x64 sharp",
+    "deploy": "vercel --prod"
+  },
   "dependencies": {
     "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@vercel/node": "^3.0.0"
+  },
+  "optionalDependencies": {
+    "@img/sharp-linux-x64": "^0.33.5"
   },
   "engines": {
     "node": "22.x"
