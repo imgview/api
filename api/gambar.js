@@ -187,9 +187,9 @@ module.exports = async function handler(req, res) {
     if (doSharp) {
       sharpInstance = sharpInstance
         .sharpen({ 
-          sigma: 0.5,    // Turun dari 0.6 ke 0.5
-          m1: 0.8,       // Turun dari 0.95 ke 0.8
-          m2: 0.3        // Turun dari 0.4 ke 0.3
+          sigma: 0.4,    // Turun dari 0.5 ke 0.4 (lebih blur)
+          m1: 0.7,       // Turun dari 0.8 ke 0.7 (kurang tajam)
+          m2: 0.25       // Turun dari 0.3 ke 0.25 (kurang tajam)
         })
         .modulate({
           brightness: 1.0,
