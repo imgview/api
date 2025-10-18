@@ -183,13 +183,18 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Sharpen default true dengan parameter lebih halus
+    // Sharpen default true dengan parameter lebih halus + unsharp untuk teks
     if (doSharp) {
-      sharpInstance = sharpInstance.sharpen({ 
-        sigma: 0.6,    // Sudah diturunkan user
-        m1: 0.8,       // Turun dari 0.95 ke 0.8
-        m2: 0.3        // Turun dari 0.4 ke 0.3
-      });
+      sharpInstance = sharpInstance
+        .sharpen({ 
+          sigma: 0.6,    // Sudah diturunkan user
+          m1: 0.8,       // Turun dari 0.95 ke 0.8
+          m2: 0.3        // Turun dari 0.4 ke 0.3
+        })
+        .modulate({
+          brightness: 1.0,
+          saturation: 1.02  // Sedikit boost saturation untuk clarity
+        });
     }
 
     // Set quality jika ada parameter q, sesuaikan dengan format asli
