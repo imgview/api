@@ -186,7 +186,7 @@ module.exports = async function handler(req, res) {
     // Sharpen default true dengan parameter balanced
     if (doSharp) {
       sharpInstance = sharpInstance.sharpen({ 
-        sigma: 0.75,   // Turun 0.1 dari 0.85
+        sigma: 0.6,   // Turun 0.1 dari 0.85
         m1: 0.95,      // Sedikit turun dari 1.0
         m2: 0.4        // Turun dari 0.5 ke 0.4
       });
