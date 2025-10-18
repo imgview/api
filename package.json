@@ -14,7 +14,13 @@
     "@vercel/node": "^3.0.0"
   },
   "optionalDependencies": {
-    "@img/sharp-linux-x64": "^0.33.5"
+    "@img/sharp-linux-x64": "^0.33.5",
+    "@img/sharp-libvips-linux-x64": "^1.0.4"
+  },
+  "overrides": {
+    "sharp": {
+      "@img/sharp-libvips-linux-x64": "^1.0.4"
+    }
   },
   "engines": {
     "node": "22.x"
