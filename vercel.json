@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "functions": {
     "api/gambar.js": {
       "maxDuration": 60,
@@ -12,7 +13,6 @@
   "env": {
     "NODE_ENV": "production"
   },
-  "buildCommand": "npm install --platform=linux --arch=x64 sharp",
   "headers": [
     {
       "source": "/api/(.*)",
