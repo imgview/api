@@ -17,50 +17,78 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'URL tidak valid' });
   }
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+  // Daftar referer yang dicoba secara berurutan
+  const referers = [
+    imageUrl.origin + '/',
+    'https://www.google.com/',
+    'https://imgkc2.my.id/',
+    '',
+  ];
 
-    const response = await fetch(imageUrl.toString(), {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  let response = null;
+  let lastStatus = null;
+
+  for (const referer of referers) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
         'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
         'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
-        'Referer': imageUrl.origin + '/',
-        'Origin': imageUrl.origin,
         'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"Android"',
         'Sec-Fetch-Dest': 'image',
         'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-Site': referer ? 'cross-site' : 'none',
         'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Connection': 'keep-alive',
+      };
+
+      if (referer) {
+        headers['Referer'] = referer;
+        headers['Origin'] = new URL(referer).origin;
       }
-    }).finally(() => clearTimeout(timeout));
 
-    // Debug: tampilkan status dan content-type
-    if (!response.ok)
-      return res.status(response.status).json({ 
-        error: `Gagal fetch: ${response.status}`,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries())
-      });
+      const r = await fetch(imageUrl.toString(), {
+        signal: controller.signal,
+        headers,
+      }).finally(() => clearTimeout(timeout));
 
-    const contentType = response.headers.get('content-type') || '';
+      lastStatus = r.status;
+
+      if (r.ok) {
+        response = r;
+        break;
+      }
+    } catch (e) {
+      lastStatus = e.message;
+    }
+  }
+
+  if (!response) {
+    return res.status(403).json({ error: `Semua percobaan gagal, status terakhir: ${lastStatus}` });
+  }
+
+  try {
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
     const imageBuffer = Buffer.from(await response.arrayBuffer());
 
-    if (!imageBuffer.length) 
-      return res.status(500).json({ error: 'Buffer kosong', contentType });
+    if (!imageBuffer.length)
+      return res.status(500).json({ error: 'Buffer kosong' });
 
-    // Kalau tidak bisa diproses Jimp, langsung passthrough saja
+    // Tanpa resize: langsung passthrough
     if (!w && !h && !q) {
-      res.setHeader('Content-Type', contentType || 'image/jpeg');
+      res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Length', imageBuffer.length);
       res.setHeader('Cache-Control', 'public, max-age=86400');
       return res.status(200).send(imageBuffer);
     }
 
+    // Dengan resize pakai Jimp
     const image = await Jimp.read(imageBuffer);
     const mime = image.getMIME();
 
@@ -81,7 +109,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).send(output);
 
   } catch (err) {
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: err.message,
       stack: err.stack?.split('\n').slice(0, 3).join(' | ')
     });
