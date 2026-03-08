@@ -1,65 +1,82 @@
-// File: api/test.js (Vercel)
+const Sharp = require('sharp');
 
-export default async (request) => {
-  // ************ KOREKSI KRITIS ************
-  // Gunakan 'request.url' dan konstruktor URL hanya untuk mendapatkan search params.
-  // Kita harus memastikan URL lengkap tersedia, atau setidaknya menangkap error
-  // saat mengurai untuk mendapatkan parameter.
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const { url, h, w, q, fit } = req.query;
+
+  if (!url) return res.status(400).json({ error: 'Parameter url wajib diisi' });
 
   let imageUrl;
   try {
-    // Ambil parameter dengan asumsi URL request adalah valid.
-    // Jika 'request.url' hanya berisi path, inilah yang menyebabkan crash.
-    const requestUrl = new URL(request.url);
-    imageUrl = requestUrl.searchParams.get("url");
-
-    // Jika terjadi error pada baris ini, itu berarti 'request.url' tidak valid.
-  } catch (e) {
-    // Ini menangani kasus '/api/test' yang menyebabkan 'TypeError: Invalid URL'.
-    // Karena kita tidak bisa mendapatkan parameter, kita anggap itu error 400.
-    return new Response("Gagal mengurai URL permintaan server. Pastikan Anda menggunakan parameter '?url=...' dengan benar.", { 
-        status: 400, 
-        headers: { "Content-Type": "text/plain" }
-    });
+    imageUrl = new URL(url);
+    if (!['http:', 'https:'].includes(imageUrl.protocol)) {
+      return res.status(400).json({ error: 'Hanya protokol http/https' });
+    }
+  } catch {
+    return res.status(400).json({ error: 'URL tidak valid' });
   }
 
-  // Cek jika parameter hilang ATAU kosong. (Pengecekan logika yang benar)
-  if (!imageUrl || imageUrl.trim() === "") {
-    return new Response("Parameter 'url' (URL gambar sumber) hilang atau kosong.", { 
-        status: 400, 
-        headers: { "Content-Type": "text/plain" }
-    });
-  }
-
-  // ... (Sisa kode fetch dan caching Anda)
   try {
-    const response = await fetch(imageUrl, {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(imageUrl.toString(), {
+      signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Referer": new URL(imageUrl).origin 
+        // Pura-pura browser biasa biar tidak diblok Cloudflare
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': imageUrl.origin + '/',
+        'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'Sec-Fetch-Dest': 'image',
+        'Sec-Fetch-Mode': 'no-cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'Cache-Control': 'no-cache',
       }
     });
 
-    if (!response.ok) {
-      return new Response(`Gagal mengambil gambar. Status: ${response.status}.`, {
-        status: response.status,
-      });
+    clearTimeout(timeout);
+
+    if (!response.ok) return res.status(response.status).json({ error: `Gagal fetch: ${response.status}` });
+
+    const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+    let sharpInstance = Sharp(imageBuffer, { failOnError: false });
+
+    if (w || h) {
+      sharpInstance = sharpInstance.resize(
+        w ? parseInt(w) : undefined,
+        h ? parseInt(h) : undefined,
+        { fit: fit || 'inside', withoutEnlargement: true }
+      );
     }
-    // ... (Set header caching)
-    const headers = new Headers(response.headers);
-    headers.set("Cache-Control", "public, max-age=31536000, s-maxage=31536000, immutable");
-    headers.set("Access-Control-Allow-Origin", "*");
 
-    return new Response(response.body, {
-      status: 200,
-      headers: headers,
-    });
+    if (q) {
+      const quality = parseInt(q);
+      const meta = await Sharp(imageBuffer).metadata();
+      const fmt = meta.format;
+      if (fmt === 'jpeg') sharpInstance = sharpInstance.jpeg({ quality });
+      else if (fmt === 'png') sharpInstance = sharpInstance.png({ quality });
+      else if (fmt === 'webp') sharpInstance = sharpInstance.webp({ quality });
+      else if (fmt === 'avif') sharpInstance = sharpInstance.avif({ quality });
+    }
 
-  } catch (error) {
-    // Ini menangani error fetch
-    console.error("Image proxy error:", error);
-    return new Response(`Error 500: Koneksi gagal ke sumber gambar. ${error.message}`, {
-      status: 500,
-    });
+    const output = await sharpInstance.toBuffer();
+    const meta = await Sharp(output).metadata();
+
+    res.setHeader('Content-Type', `image/${meta.format}`);
+    res.setHeader('Content-Length', output.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.status(200).send(output);
+
+  } catch (err) {
+    return res.status(500).json({ error: 'Gagal memproses gambar', message: err.message });
   }
 };
