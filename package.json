@@ -5,7 +5,8 @@
   "main": "api/gambar.js",
   "scripts": {
     "dev": "vercel dev",
-    "deploy": "vercel --prod"
+    "deploy": "vercel --prod",
+    "vercel-build": "npm install --include=optional --os=linux --cpu=x64 --libc=glibc sharp"
   },
   "dependencies": {
     "sharp": "^0.33.5"
@@ -16,11 +17,6 @@
   "optionalDependencies": {
     "@img/sharp-linux-x64": "^0.33.5",
     "@img/sharp-libvips-linux-x64": "^1.0.4"
-  },
-  "overrides": {
-    "sharp": {
-      "@img/sharp-libvips-linux-x64": "^1.0.4"
-    }
   },
   "engines": {
     "node": "22.x"
