@@ -1,38 +1,5 @@
 const Jimp = require('jimp');
 
-async function fetchWithFallback(imageUrl) {
-  const urlStr = imageUrl.toString();
-
-  // Daftar strategi fetch
-  const strategies = [
-    // 1. Langsung dengan header browser
-    () => fetch(urlStr, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-        'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
-        'Referer': imageUrl.origin + '/',
-        'Sec-Fetch-Dest': 'image',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'same-origin',
-      }
-    }),
-    // 2. Lewat weserv.nl (proxy publik gratis)
-    () => fetch(`https://images.weserv.nl/?url=${encodeURIComponent(urlStr)}&default=1`),
-    // 3. Lewat wsrv.nl (mirror weserv)
-    () => fetch(`https://wsrv.nl/?url=${encodeURIComponent(urlStr)}`),
-  ];
-
-  for (const strategy of strategies) {
-    try {
-      const r = await strategy();
-      if (r.ok) return r;
-    } catch (e) {
-      continue;
-    }
-  }
-  return null;
-}
-
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -51,10 +18,29 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const response = await fetchWithFallback(imageUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
-    if (!response)
-      return res.status(403).json({ error: 'Semua strategi gagal, gambar diblok' });
+    const response = await fetch(imageUrl.toString(), {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+        'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
+        'Referer': 'https://v1.komikcast.fit/',
+        'Origin': 'https://v1.komikcast.fit',
+        'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"Android"',
+        'Sec-Fetch-Dest': 'image',
+        'Sec-Fetch-Mode': 'no-cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'Cache-Control': 'no-cache',
+      }
+    }).finally(() => clearTimeout(timeout));
+
+    if (!response.ok)
+      return res.status(response.status).json({ error: `Gagal fetch: ${response.status}` });
 
     const contentType = response.headers.get('content-type') || 'image/jpeg';
     const imageBuffer = Buffer.from(await response.arrayBuffer());
@@ -91,9 +77,6 @@ module.exports = async function handler(req, res) {
     return res.status(200).send(output);
 
   } catch (err) {
-    return res.status(500).json({
-      error: err.message,
-      stack: err.stack?.split('\n').slice(0, 3).join(' | ')
-    });
+    return res.status(500).json({ error: err.message });
   }
 };
