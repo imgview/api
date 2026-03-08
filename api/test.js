@@ -1,6 +1,12 @@
 const Jimp = require('jimp');
+const webp = require('@jimp/plugin-webp');
+Jimp.prototype.constructor.prototype.constructor = Jimp;
 
-// Map domain gambar ke referer yang benar
+// Daftarkan plugin webp
+const JimpWithWebp = Jimp.appendConstructorOption(
+  'webp', () => {}, () => {}
+);
+
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
   'softkomik': 'https://softkomik.co/',
@@ -10,7 +16,7 @@ function getReferer(hostname) {
   for (const [key, referer] of Object.entries(REFERER_MAP)) {
     if (hostname.includes(key)) return referer;
   }
-  return null; // tidak pakai referer jika tidak dikenal
+  return null;
 }
 
 module.exports = async function handler(req, res) {
@@ -35,7 +41,6 @@ module.exports = async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     const referer = getReferer(imageUrl.hostname);
-
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
       'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
@@ -76,7 +81,15 @@ module.exports = async function handler(req, res) {
       return res.status(200).send(imageBuffer);
     }
 
-    // Dengan resize pakai Jimp
+    // WebP: passthrough juga karena Jimp tidak support resize WebP
+    if (contentType.includes('webp')) {
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', imageBuffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.status(200).send(imageBuffer);
+    }
+
+    // Resize pakai Jimp (jpeg/png)
     const image = await Jimp.read(imageBuffer);
     const mime = image.getMIME();
 
