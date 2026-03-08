@@ -39,18 +39,32 @@ module.exports = async function handler(req, res) {
       }
     }).finally(() => clearTimeout(timeout));
 
+    // Debug: tampilkan status dan content-type
     if (!response.ok)
-      return res.status(response.status).json({ error: `Gagal fetch: ${response.status}` });
+      return res.status(response.status).json({ 
+        error: `Gagal fetch: ${response.status}`,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
 
+    const contentType = response.headers.get('content-type') || '';
     const imageBuffer = Buffer.from(await response.arrayBuffer());
-    if (!imageBuffer.length) return res.status(500).json({ error: 'Buffer kosong' });
+
+    if (!imageBuffer.length) 
+      return res.status(500).json({ error: 'Buffer kosong', contentType });
+
+    // Kalau tidak bisa diproses Jimp, langsung passthrough saja
+    if (!w && !h && !q) {
+      res.setHeader('Content-Type', contentType || 'image/jpeg');
+      res.setHeader('Content-Length', imageBuffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.status(200).send(imageBuffer);
+    }
 
     const image = await Jimp.read(imageBuffer);
     const mime = image.getMIME();
 
     if (w || h) {
-      const targetW = w ? parseInt(w) : Jimp.AUTO;
-      const targetH = h ? parseInt(h) : Jimp.AUTO;
       image.scaleToFit(
         w ? parseInt(w) : image.getWidth(),
         h ? parseInt(h) : image.getHeight()
@@ -67,6 +81,9 @@ module.exports = async function handler(req, res) {
     return res.status(200).send(output);
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ 
+      error: err.message,
+      stack: err.stack?.split('\n').slice(0, 3).join(' | ')
+    });
   }
 };
