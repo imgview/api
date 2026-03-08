@@ -36,6 +36,10 @@
     {
       "source": "/image",
       "destination": "/api/gambar"
+    },
+    {
+      "source": "/test",
+      "destination": "/api/test"
     }
   ]
 }
