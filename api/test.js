@@ -1,5 +1,18 @@
 const Jimp = require('jimp');
 
+// Map domain gambar ke referer yang benar
+const REFERER_MAP = {
+  'imgkc': 'https://v1.komikcast.fit/',
+  'softkomik': 'https://softkomik.online/',
+};
+
+function getReferer(hostname) {
+  for (const [key, referer] of Object.entries(REFERER_MAP)) {
+    if (hostname.includes(key)) return referer;
+  }
+  return null; // tidak pakai referer jika tidak dikenal
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -21,22 +34,29 @@ module.exports = async function handler(req, res) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
+    const referer = getReferer(imageUrl.hostname);
+
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+      'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
+      'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+      'sec-ch-ua-mobile': '?1',
+      'sec-ch-ua-platform': '"Android"',
+      'Sec-Fetch-Dest': 'image',
+      'Sec-Fetch-Mode': 'no-cors',
+      'Sec-Fetch-Site': referer ? 'cross-site' : 'none',
+      'Cache-Control': 'no-cache',
+    };
+
+    if (referer) {
+      headers['Referer'] = referer;
+      headers['Origin'] = new URL(referer).origin;
+    }
+
     const response = await fetch(imageUrl.toString(), {
       signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-        'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
-        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
-        'Referer': 'https://v1.komikcast.fit/',
-        'Origin': 'https://v1.komikcast.fit',
-        'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        'sec-ch-ua-mobile': '?1',
-        'sec-ch-ua-platform': '"Android"',
-        'Sec-Fetch-Dest': 'image',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'Cache-Control': 'no-cache',
-      }
+      headers,
     }).finally(() => clearTimeout(timeout));
 
     if (!response.ok)
