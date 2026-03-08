@@ -3,7 +3,7 @@ const Jimp = require('jimp');
 // Map domain gambar ke referer yang benar
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
-  'softkomik': 'https://softkomik.online/',
+  'softkomik': 'https://softkomik.co/',
 };
 
 function getReferer(hostname) {
