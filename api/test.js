@@ -1,11 +1,4 @@
-const Jimp = require('jimp');
-const webp = require('@jimp/plugin-webp');
-Jimp.prototype.constructor.prototype.constructor = Jimp;
-
-// Daftarkan plugin webp
-const JimpWithWebp = Jimp.appendConstructorOption(
-  'webp', () => {}, () => {}
-);
+const Sharp = require('sharp');
 
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
@@ -81,30 +74,29 @@ module.exports = async function handler(req, res) {
       return res.status(200).send(imageBuffer);
     }
 
-    // WebP: passthrough juga karena Jimp tidak support resize WebP
-    if (contentType.includes('webp')) {
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Length', imageBuffer.length);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.status(200).send(imageBuffer);
-    }
+    // Resize pakai Sharp
+    const meta = await Sharp(imageBuffer, { failOnError: false }).metadata();
+    const fmt = meta.format || 'jpeg';
 
-    // Resize pakai Jimp (jpeg/png)
-    const image = await Jimp.read(imageBuffer);
-    const mime = image.getMIME();
+    let s = Sharp(imageBuffer, { failOnError: false, limitInputPixels: false });
 
     if (w || h) {
-      image.scaleToFit(
-        w ? parseInt(w) : image.getWidth(),
-        h ? parseInt(h) : image.getHeight()
-      );
+      s = s.resize(w ? parseInt(w) : undefined, h ? parseInt(h) : undefined, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
     }
 
-    if (q) image.quality(parseInt(q));
+    const quality = q ? parseInt(q) : 85;
+    if (fmt === 'jpeg') s = s.jpeg({ quality });
+    else if (fmt === 'png') s = s.png({ quality });
+    else if (fmt === 'webp') s = s.webp({ quality });
+    else if (fmt === 'avif') s = s.avif({ quality });
+    else s = s.jpeg({ quality });
 
-    const output = await image.getBufferAsync(mime);
+    const output = await s.toBuffer();
 
-    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Type', `image/${fmt}`);
     res.setHeader('Content-Length', output.length);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.status(200).send(output);
