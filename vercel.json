@@ -42,8 +42,8 @@
       "destination": "/api/test"
     },
     {
-      "source": "/cover/:w/:h/:url*",
-      "destination": "/api/gambar?w=:w&h=:h&url=:url*"
+      "source": "/cover/:w/:h/:proto/:url*",
+      "destination": "/api/gambar?w=:w&h=:h&url=:proto://:url*"
     }
   ]
 }
