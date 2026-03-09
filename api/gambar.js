@@ -6,6 +6,9 @@ const REFERER_MAP = {
   'softkomik': 'https://softkomik.co/',
 };
 
+// Parameter yang dipakai oleh proxy sendiri, bukan bagian dari URL gambar
+const PROXY_PARAMS = new Set(['url', 'w', 'h', 'fit']);
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -14,9 +17,17 @@ module.exports = async function handler(req, res) {
   const { url, w, h, fit = 'cover' } = req.query;
   if (!url) return res.status(400).json({ error: 'Parameter url wajib diisi' });
 
+  // Reconstruct URL yang terpotong akibat & di query string (untuk test manual di browser)
+  // Semua query param selain proxy params dianggap bagian dari URL gambar asli
+  const extraParams = Object.entries(req.query)
+    .filter(([k]) => !PROXY_PARAMS.has(k))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('&');
+  const rawUrl = extraParams ? `${url}&${extraParams}` : url;
+
   let imageUrl;
   try {
-    imageUrl = new URL(url);
+    imageUrl = new URL(rawUrl);
     if (!['http:', 'https:'].includes(imageUrl.protocol))
       return res.status(400).json({ error: 'Hanya http/https' });
   } catch {
@@ -24,7 +35,8 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const referer = Object.entries(REFERER_MAP).find(([key]) => imageUrl.hostname.includes(key))?.[1] || null;
+    const referer = Object.entries(REFERER_MAP)
+      .find(([key]) => imageUrl.hostname.includes(key))?.[1] || null;
 
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
@@ -43,7 +55,11 @@ module.exports = async function handler(req, res) {
     const response = await fetch(imageUrl.toString(), { headers });
 
     if (!response.ok)
-      return res.status(response.status).json({ error: `Gagal fetch: ${response.status}` });
+      return res.status(response.status).json({
+        error: `Gagal fetch: ${response.status}`,
+        url: imageUrl.hostname,
+        referer: referer || 'tidak ada',
+      });
 
     const buffer = Buffer.from(await response.arrayBuffer());
 
