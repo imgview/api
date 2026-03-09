@@ -36,7 +36,8 @@ module.exports = async function handler(req, res) {
     const referer = getReferer(imageUrl.hostname);
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-      'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+      // Tidak minta webp agar server kirim jpeg
+      'Accept': 'image/jpeg,image/png,image/*,*/*;q=0.8',
       'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
       'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
       'sec-ch-ua-mobile': '?1',
@@ -84,7 +85,6 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Output sebagai jpeg untuk semua format (termasuk webp) agar quality bisa diatur
     const output = await image.getBuffer('image/jpeg', { quality });
 
     res.setHeader('Content-Type', 'image/jpeg');
