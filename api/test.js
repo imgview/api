@@ -1,4 +1,4 @@
-const Sharp = require('sharp');
+const Jimp = require('jimp');
 
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
@@ -74,29 +74,53 @@ module.exports = async function handler(req, res) {
       return res.status(200).send(imageBuffer);
     }
 
-    // Resize pakai Sharp
-    const meta = await Sharp(imageBuffer, { failOnError: false }).metadata();
-    const fmt = meta.format || 'jpeg';
+    const isWebp = contentType.includes('webp');
+    const quality = q ? parseInt(q) : 85;
 
-    let s = Sharp(imageBuffer, { failOnError: false, limitInputPixels: false });
+    // Untuk WebP: fetch ulang minta versi non-webp via wsrv.nl lalu resize Jimp
+    let processBuffer = imageBuffer;
+    let outputMime = 'image/jpeg';
 
-    if (w || h) {
-      s = s.resize(w ? parseInt(w) : undefined, h ? parseInt(h) : undefined, {
-        fit: 'inside',
-        withoutEnlargement: true,
-      });
+    if (isWebp) {
+      try {
+        // Konversi webp ke jpeg via wsrv.nl
+        const wsrvUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl.toString())}&output=jpg`;
+        const wsrvRes = await fetch(wsrvUrl);
+        if (wsrvRes.ok) {
+          processBuffer = Buffer.from(await wsrvRes.arrayBuffer());
+          outputMime = 'image/jpeg';
+        } else {
+          // wsrv gagal, passthrough webp original
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Length', imageBuffer.length);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.status(200).send(imageBuffer);
+        }
+      } catch {
+        // wsrv error, passthrough webp original
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', imageBuffer.length);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.status(200).send(imageBuffer);
+      }
     }
 
-    const quality = q ? parseInt(q) : 85;
-    if (fmt === 'jpeg') s = s.jpeg({ quality });
-    else if (fmt === 'png') s = s.png({ quality });
-    else if (fmt === 'webp') s = s.webp({ quality });
-    else if (fmt === 'avif') s = s.avif({ quality });
-    else s = s.jpeg({ quality });
+    // Resize pakai Jimp
+    const image = await Jimp.read(processBuffer);
+    outputMime = image.getMIME();
 
-    const output = await s.toBuffer();
+    if (w || h) {
+      image.scaleToFit(
+        w ? parseInt(w) : image.getWidth(),
+        h ? parseInt(h) : image.getHeight()
+      );
+    }
 
-    res.setHeader('Content-Type', `image/${fmt}`);
+    image.quality(quality);
+
+    const output = await image.getBufferAsync(outputMime);
+
+    res.setHeader('Content-Type', outputMime);
     res.setHeader('Content-Length', output.length);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.status(200).send(output);
