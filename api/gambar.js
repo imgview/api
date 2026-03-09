@@ -2,6 +2,7 @@ const sharp = require('sharp');
 
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
+  'komikcast': 'https://v1.komikcast.fit/',
   'softkomik': 'https://softkomik.co/',
 };
 
