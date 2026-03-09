@@ -5,11 +5,10 @@
   "main": "api/gambar.js",
   "scripts": {
     "dev": "vercel dev",
-    "deploy": "vercel --prod",
-    "vercel-build": "npm install --cpu=x64 --os=linux --libc=glibc sharp && npm install"
+    "deploy": "vercel --prod"
   },
   "dependencies": {
-    "sharp": "^0.33.5"
+    "jimp": "^0.22.12"
   },
   "devDependencies": {
     "@vercel/node": "^3.0.0"
