@@ -1,6 +1,7 @@
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
   'softkomik': 'https://softkomik.co/',
+  'westmanga': 'https://westmanga.tv/',
 };
 
 module.exports = async function handler(req, res) {
