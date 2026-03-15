@@ -2,7 +2,7 @@ const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
   'softkomik': 'https://softkomik.co/',
   'komiku': 'https://komiku.cc/',
-  'webtoons': 'https://webtoons.com/',
+  'webtoons': 'https://webtoon-phinf.pstatic.net/',
 };
 
 module.exports = async function handler(req, res) {
