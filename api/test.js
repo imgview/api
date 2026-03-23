@@ -3,6 +3,7 @@ const REFERER_MAP = {
   'softkomik': 'https://softkomik.co/',
   'komiku': 'https://komiku.cc/',
   'webtoon': 'https://www.webtoons.com/',
+  'desu.photos': 'https://doujindesu.tv/',
 };
 
 module.exports = async function handler(req, res) {
