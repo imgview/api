@@ -1,355 +1,216 @@
-const rateLimit = new Map();
+const dns = require("dns").promises;
+const net = require("net");
 
-const ADMIN_IPS = (process.env.ADMIN_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean);
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "host",
+  "content-length",
+]);
 
-// Cleanup rate limit setiap 10 menit
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost",
+  "ip6-localhost",
+  "ip6-loopback",
+]);
 
-setInterval(() => {
+function sendCORS(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader(
+    "Access-Control-Expose-Headers",
+    "Content-Type,Content-Length,Content-Disposition,Cache-Control,ETag,Last-Modified"
+  );
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
 
-  const now = Date.now();
+function isPrivateIPv4(ip) {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false;
 
-  const oneHour = 3600000;
+  const [a, b] = parts;
 
-  for (const [ip, requests] of rateLimit.entries()) {
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
 
-    const validRequests = requests.filter(time => now - time < oneHour);
+  return false;
+}
 
-    if (validRequests.length === 0) rateLimit.delete(ip);
+function isPrivateIPv6(ip) {
+  const normalized = ip.toLowerCase();
 
-    else rateLimit.set(ip, validRequests);
+  if (normalized === "::1") return true;
+  if (normalized.startsWith("fe80:")) return true; // link-local
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
 
+  return false;
+}
+
+function isBlockedHost(hostname) {
+  const lower = hostname.toLowerCase();
+
+  if (BLOCKED_HOSTNAMES.has(lower)) return true;
+  if (lower.endsWith(".localhost")) return true;
+  if (lower.endsWith(".local")) return true;
+
+  if (net.isIP(lower) === 4) return isPrivateIPv4(lower);
+  if (net.isIP(lower) === 6) return isPrivateIPv6(lower);
+
+  return false;
+}
+
+async function resolveAndCheckHostname(hostname) {
+  if (isBlockedHost(hostname)) {
+    throw new Error("Blocked host");
   }
 
-}, 600000);
+  const records = await dns.lookup(hostname, { all: true });
+
+  for (const record of records) {
+    if (record.family === 4 && isPrivateIPv4(record.address)) {
+      throw new Error("Blocked private IPv4");
+    }
+    if (record.family === 6 && isPrivateIPv6(record.address)) {
+      throw new Error("Blocked private IPv6");
+    }
+  }
+}
+
+function getTargetUrl(req) {
+  const urlFromQuery = req.query?.url || req.query?.u;
+  if (!urlFromQuery) return null;
+
+  try {
+    return new URL(urlFromQuery);
+  } catch {
+    return null;
+  }
+}
+
+async function readRawBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function filteredRequestHeaders(req) {
+  const headers = {};
+
+  for (const [key, value] of Object.entries(req.headers || {})) {
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lower)) continue;
+    if (lower === "origin") continue; // biar upstream tidak kebawa origin liar
+    if (typeof value === "undefined") continue;
+    headers[key] = value;
+  }
+
+  return headers;
+}
+
+function filteredResponseHeaders(upstreamHeaders) {
+  const headers = {};
+
+  for (const [key, value] of upstreamHeaders.entries()) {
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lower)) continue;
+    if (lower === "set-cookie") continue; // aman dan lebih minim drama
+    headers[key] = value;
+  }
+
+  return headers;
+}
 
 module.exports = async function handler(req, res) {
+  sendCORS(res);
 
-  // CORS Headers - Allow semua origin
-
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD');
-
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, User-Agent, Cache-Control, X-API-Key, X-Custom-Header');
-
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Date, Server, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset');
-
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  res.setHeader('Access-Control-Max-Age', '86400');
-
-  // Handle preflight request
-
-  if (req.method === 'OPTIONS') {
-
+  if (req.method === "OPTIONS") {
     return res.status(204).end();
-
   }
 
-  // Get client IP
+  const target = getTargetUrl(req);
+  if (!target) {
+    return res.status(400).json({
+      ok: false,
+      error: "Parameter 'url' wajib diisi.",
+    });
+  }
 
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
+  if (!["http:", "https:"].includes(target.protocol)) {
+    return res.status(400).json({
+      ok: false,
+      error: "Hanya http dan https yang diizinkan.",
+    });
+  }
 
-             req.headers['x-real-ip'] || 
-
-             req.connection?.remoteAddress || 
-
-             'unknown';
-
-  
-
-  const isAdmin = ADMIN_IPS.includes(ip);
-
-  const maxRequests = isAdmin ? 1000 : 50;
-
-  // Rate limiting (kecuali admin)
-
-  if (!isAdmin) {
-
-    const now = Date.now();
-
-    if (!rateLimit.has(ip)) rateLimit.set(ip, []);
-
-    
-
-    const requests = rateLimit.get(ip).filter(time => now - time < 3600000);
-
-    
-
-    if (requests.length >= maxRequests) {
-
-      const oldestRequest = Math.min(...requests);
-
-      const resetTime = new Date(oldestRequest + 3600000);
-
-      const remainingMinutes = Math.ceil((resetTime - now) / 60000);
-
-      
-
-      res.setHeader('X-RateLimit-Limit', maxRequests.toString());
-
-      res.setHeader('X-RateLimit-Remaining', '0');
-
-      res.setHeader('X-RateLimit-Reset', resetTime.toISOString());
-
-      
-
-      return res.status(429).json({
-
-        error: 'Rate limit exceeded',
-
-        message: `Terlalu banyak request. Coba lagi dalam ${remainingMinutes} menit.`,
-
-        resetTime: resetTime.toISOString()
-
+  const secret = process.env.PROXY_KEY;
+  if (secret) {
+    const key = req.query?.key || req.headers["x-proxy-key"];
+    if (key !== secret) {
+      return res.status(401).json({
+        ok: false,
+        error: "Key tidak valid.",
       });
-
     }
-
-    
-
-    requests.push(now);
-
-    rateLimit.set(ip, requests);
-
-    
-
-    // Set rate limit headers
-
-    res.setHeader('X-RateLimit-Limit', maxRequests.toString());
-
-    res.setHeader('X-RateLimit-Remaining', (maxRequests - requests.length).toString());
-
-  }
-
-  // Validasi URL parameter
-
-  const { url } = req.query;
-
-  
-
-  if (!url) {
-
-    return res.status(400).json({
-
-      error: 'Missing parameter',
-
-      message: 'URL parameter is required. Usage: /api/proxy?url=https://example.com'
-
-    });
-
-  }
-
-  // Validasi format URL
-
-  let targetUrl;
-
-  try {
-
-    targetUrl = new URL(url);
-
-    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
-
-      throw new Error('Invalid protocol');
-
-    }
-
-  } catch (error) {
-
-    return res.status(400).json({
-
-      error: 'Invalid URL',
-
-      message: 'URL harus valid dan menggunakan protokol http/https'
-
-    });
-
   }
 
   try {
-
-    // Prepare headers untuk request ke target
-
-    const proxyHeaders = {
-
-      'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-
-      'Accept': req.headers['accept'] || '*/*',
-
-      'Accept-Language': req.headers['accept-language'] || 'en-US,en;q=0.9,id;q=0.8',
-
-      'Accept-Encoding': 'gzip, deflate, br',
-
-      'Cache-Control': req.headers['cache-control'] || 'no-cache',
-
-      'Pragma': 'no-cache',
-
-      'DNT': '1',
-
-      'Sec-Fetch-Dest': 'empty',
-
-      'Sec-Fetch-Mode': 'cors',
-
-      'Sec-Fetch-Site': 'cross-site'
-
-    };
-
-    // Forward specific headers jika ada
-
-    const headersToForward = [
-
-      'authorization',
-
-      'content-type',
-
-      'cookie',
-
-      'referer',
-
-      'origin',
-
-      'x-api-key',
-
-      'x-requested-with'
-
-    ];
-
-    headersToForward.forEach(header => {
-
-      if (req.headers[header]) {
-
-        proxyHeaders[header.split('-').map(word => 
-
-          word.charAt(0).toUpperCase() + word.slice(1)
-
-        ).join('-')] = req.headers[header];
-
-      }
-
+    await resolveAndCheckHostname(target.hostname);
+  } catch (err) {
+    return res.status(403).json({
+      ok: false,
+      error: "Host diblokir.",
     });
-
-    // Prepare request body untuk method selain GET dan HEAD
-
-    let body = undefined;
-
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-
-      if (req.body) {
-
-        body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-
-      }
-
-    }
-
-    // Fetch target URL
-
-    const response = await fetch(targetUrl.toString(), {
-
-      method: req.method,
-
-      headers: proxyHeaders,
-
-      body: body,
-
-      redirect: 'follow',
-
-      compress: true
-
-    });
-
-    // Forward response headers (kecuali yang conflict dengan CORS)
-
-    const headersToSkip = [
-
-      'access-control-allow-origin',
-
-      'access-control-allow-methods',
-
-      'access-control-allow-headers',
-
-      'access-control-expose-headers',
-
-      'access-control-allow-credentials',
-
-      'access-control-max-age',
-
-      'content-encoding',
-
-      'transfer-encoding',
-
-      'connection',
-
-      'keep-alive'
-
-    ];
-
-    response.headers.forEach((value, key) => {
-
-      if (!headersToSkip.includes(key.toLowerCase())) {
-
-        try {
-
-          res.setHeader(key, value);
-
-        } catch (e) {
-
-          // Skip jika header tidak bisa di-set
-
-        }
-
-      }
-
-    });
-
-    // Set status code
-
-    res.status(response.status);
-
-    // Get content type
-
-    const contentType = response.headers.get('content-type') || '';
-
-    // Handle response berdasarkan content type
-
-    if (contentType.includes('application/json')) {
-
-      const data = await response.json();
-
-      return res.json(data);
-
-    } else if (contentType.includes('text/')) {
-
-      const text = await response.text();
-
-      return res.send(text);
-
-    } else {
-
-      // Binary data (images, files, etc)
-
-      const buffer = await response.arrayBuffer();
-
-      return res.send(Buffer.from(buffer));
-
-    }
-
-  } catch (error) {
-
-    console.error('Proxy error:', error);
-
-    
-
-    return res.status(500).json({
-
-      error: 'Proxy error',
-
-      message: error.message || 'Terjadi kesalahan saat mengakses URL target',
-
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-
-    });
-
   }
 
+  const method = req.method.toUpperCase();
+  const headers = filteredRequestHeaders(req);
+
+  let body;
+  if (!["GET", "HEAD"].includes(method)) {
+    body = await readRawBody(req);
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(target.toString(), {
+      method,
+      headers,
+      body: body && body.length ? body : undefined,
+      redirect: "follow",
+    });
+  } catch (err) {
+    return res.status(502).json({
+      ok: false,
+      error: "Gagal fetch ke target.",
+      detail: err.message,
+    });
+  }
+
+  const responseHeaders = filteredResponseHeaders(upstream.headers);
+
+  for (const [key, value] of Object.entries(responseHeaders)) {
+    res.setHeader(key, value);
+  }
+
+  res.status(upstream.status);
+
+  if (method === "HEAD") {
+    return res.end();
+  }
+
+  const arrayBuffer = await upstream.arrayBuffer();
+  return res.send(Buffer.from(arrayBuffer));
 };
