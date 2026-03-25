@@ -51,8 +51,8 @@ function isPrivateIPv6(ip) {
   const normalized = ip.toLowerCase();
 
   if (normalized === "::1") return true;
-  if (normalized.startsWith("fe80:")) return true; // link-local
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
+  if (normalized.startsWith("fe80:")) return true;
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
 
   return false;
 }
@@ -106,16 +106,20 @@ async function readRawBody(req) {
   return Buffer.concat(chunks);
 }
 
-function filteredRequestHeaders(req) {
+function filteredRequestHeaders(req, target) {
   const headers = {};
 
   for (const [key, value] of Object.entries(req.headers || {})) {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP_HEADERS.has(lower)) continue;
-    if (lower === "origin") continue; // biar upstream tidak kebawa origin liar
+    if (lower === "origin") continue;
+    if (lower === "referer") continue;
     if (typeof value === "undefined") continue;
     headers[key] = value;
   }
+
+  headers["referer"] = `${target.origin}/`;
+  headers["origin"] = target.origin;
 
   return headers;
 }
@@ -126,7 +130,7 @@ function filteredResponseHeaders(upstreamHeaders) {
   for (const [key, value] of upstreamHeaders.entries()) {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP_HEADERS.has(lower)) continue;
-    if (lower === "set-cookie") continue; // aman dan lebih minim drama
+    if (lower === "set-cookie") continue;
     headers[key] = value;
   }
 
@@ -176,7 +180,7 @@ module.exports = async function handler(req, res) {
   }
 
   const method = req.method.toUpperCase();
-  const headers = filteredRequestHeaders(req);
+  const headers = filteredRequestHeaders(req, target);
 
   let body;
   if (!["GET", "HEAD"].includes(method)) {
@@ -200,7 +204,6 @@ module.exports = async function handler(req, res) {
   }
 
   const responseHeaders = filteredResponseHeaders(upstream.headers);
-
   for (const [key, value] of Object.entries(responseHeaders)) {
     res.setHeader(key, value);
   }
