@@ -1,10 +1,6 @@
 {
   "version": 2,
   "functions": {
-    "api/gambar.js": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
     "api/*.js": {
       "maxDuration": 60,
       "memory": 1024
