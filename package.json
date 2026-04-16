@@ -1,9 +1,10 @@
 {
-  "name": "Image Proxy",
+  "name": "image-proxy",
   "version": "1.0.0",
   "main": "api/gambar.js",
   "scripts": {
     "dev": "vercel dev",
+    "build": "echo build ok",
     "deploy": "vercel --prod"
   },
   "dependencies": {
@@ -13,6 +14,6 @@
     "@vercel/node": "^3.0.0"
   },
   "engines": {
-    "node": "22.x"
+    "node": "20.x"
   }
 }
