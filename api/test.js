@@ -1,6 +1,6 @@
 const REFERER_MAP = {
   'imgkc': 'https://v1.komikcast.fit/',
-  'softkomik': 'https://softkomik.co/',
+  'softkomik': 'https://softkomik.online/',
   'komiku': 'https://komiku.cc/',
   'webtoon': 'https://www.webtoons.com/',
   'desu.photos': 'https://doujindesu.tv/',
