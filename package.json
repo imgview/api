@@ -4,7 +4,6 @@
   "main": "api/gambar.js",
   "scripts": {
     "dev": "vercel dev",
-    "build": "echo build ok",
     "deploy": "vercel --prod"
   },
   "dependencies": {
