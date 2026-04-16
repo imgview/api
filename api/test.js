@@ -1,4 +1,5 @@
 const REFERER_MAP = {
+  'komik.im': 'https://softkomik.online/',
   'imgkc': 'https://v1.komikcast.fit/',
   'softkomik': 'https://softkomik.online/',
   'komiku': 'https://komiku.cc/',
