@@ -23,25 +23,23 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'URL tidak valid' });
   }
 
+  const referer = Object.entries(REFERER_MAP).find(([key]) =>
+    imageUrl.hostname.includes(key)
+  )?.[1] || null;
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+    'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+  };
+
+  if (referer) {
+    headers['Referer'] = referer;
+    headers['Origin'] = new URL(referer).origin;
+    headers['Host'] = imageUrl.hostname;
+  }
+
   try {
-    const referer = Object.entries(REFERER_MAP).find(([key]) => imageUrl.hostname.includes(key))?.[1] || null;
-
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-      'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
-      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8',
-      'Sec-Fetch-Dest': 'image',
-      'Sec-Fetch-Mode': 'no-cors',
-      'Sec-Fetch-Site': referer ? 'cross-site' : 'none',
-    };
-
-    if (referer) {
-      headers['Referer'] = referer;
-      headers['Origin'] = new URL(referer).origin;
-    }
-
     const response = await fetch(imageUrl.toString(), { headers });
-
     if (!response.ok)
       return res.status(response.status).json({ error: `Gagal fetch: ${response.status}` });
 
@@ -52,7 +50,6 @@ module.exports = async function handler(req, res) {
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.status(200).send(buffer);
-
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
