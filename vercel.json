@@ -28,8 +28,9 @@
     }
   ],
   "rewrites": [
-    { "source": "/image", "destination": "/api/gambar" },
-    { "source": "/test", "destination": "/api/test" },
-    { "source": "/cover/:w/:h/:proto/:url*", "destination": "/api/gambar?w=:w&h=:h&url=:proto://:url*" }
+    {
+      "source": "/test",
+      "destination": "/api/test"
+    }
   ]
 }
